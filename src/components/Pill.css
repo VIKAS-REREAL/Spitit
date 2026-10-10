@@ -51,7 +51,7 @@
   cursor: grabbing;
 }
 
-/* Solid Obsidian Capsule (Zero transparency bleed, crisp edges) */
+/* Solid Obsidian Capsule (Zero transparency bleed, crisp edges, no clipped shadow) */
 .pill-capsule {
   position: relative;
   display: inline-flex;
@@ -61,8 +61,8 @@
   background: #111114;
   border-radius: 9999px;
   padding: 4px 10px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   background-clip: padding-box;
   box-sizing: border-box;
   height: 28px;
@@ -75,18 +75,18 @@
 }
 
 .pill-capsule.recording {
-  border-color: rgba(255, 213, 5, 0.35);
-  box-shadow: 0 0 0 1px rgba(255, 213, 5, 0.22), 0 4px 14px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  border-color: #FFD505;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
 }
 
 .pill-capsule.done {
-  border-color: rgba(52, 199, 89, 0.4);
-  box-shadow: 0 0 0 1px rgba(52, 199, 89, 0.25), 0 4px 14px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  border-color: #34C759;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
 }
 
 .pill-capsule.error {
-  border-color: rgba(255, 69, 58, 0.45);
-  box-shadow: 0 0 0 1px rgba(255, 69, 58, 0.25), 0 4px 14px rgba(0, 0, 0, 0.9);
+  border-color: #FF453A;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
   cursor: pointer;
 }
 

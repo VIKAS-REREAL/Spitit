@@ -19,7 +19,7 @@ impl Default for UserSettings {
         Self {
             hotkey_combo: "alt_shift".to_string(),
             mode: "hold".to_string(),
-            language: "hinglish".to_string(),
+            language: "en".to_string(),
             auto_paste: true,
             play_sound: true,
             sound_volume: 70,

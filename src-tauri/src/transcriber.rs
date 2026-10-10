@@ -10,17 +10,17 @@ pub const MODEL_WHISPER: &str = "whisper-large-v3";
 pub const MODEL_LLM: &str = "llama-3.1-8b-instant";
 
 pub const HINGLISH_WHISPER_PROMPT: &str = "\
+Transcribe Indian English and Hinglish in Roman/English script only (NOT Devanagari). \
 Haan bhai, kal subah meeting hai toh sab prepare karke ready rakhna. \
 Main thodi der mein call karta hoon, don't worry everything is working smoothly. \
-Please check the document and update me on Slack. \
-Kya chal raha hai?";
+Please check the document and update me on Slack. Kya chal raha hai?";
 
 pub const HINGLISH_SYSTEM_PROMPT: &str = "\
 You are an expert Hinglish (Hindi + English) text converter for Indian users.
 The input is speech-to-text transcript from an Indian speaker speaking Hinglish (Hindi words naturally mixed with English).
 
 CRITICAL RULES:
-1. Always write Hindi words in Roman / Latin script (English alphabet), NEVER in Devanagari script (Hindi characters).
+1. Always write Hindi words in Roman / Latin script (English alphabet), NEVER in Devanagari script (Hindi characters). If input contains any Devanagari characters (like हिन्दी), convert them to Roman transliteration.
    Examples:
    - 'हाँ भाई क्या हाल है' -> 'haan bhai kya haal hai'
    - 'कल मिलते हैं' -> 'kal milte hain'
@@ -166,9 +166,9 @@ pub async fn transcribe(
         return Err("Transcription returned empty text.".into());
     }
 
-    // Hinglish post-processing: pass through LLM for Roman cleanup
-    let has_devanagari = raw_text.chars().any(|c| ('\u{0900}'..='\u{097F}').contains(&c));
-    if language == "hinglish" || has_devanagari {
+    // Hinglish post-processing: pass through LLM ONLY when language is explicitly Hinglish.
+    // For English (default) and other languages, this is completely bypassed for ultra-fast, sub-second transcription.
+    if language == "hinglish" {
         raw_text = hinglish_cleanup(&client, api_key, &raw_text).await;
     }
 
@@ -200,18 +200,28 @@ pub async fn hinglish_cleanup(client: &reqwest::Client, api_key: &str, raw_text:
         .send()
         .await
     {
-        Ok(resp) if resp.status().is_success() => {
-            if let Ok(body) = resp.json::<ChatCompletionResponse>().await {
-                if let Some(choice) = body.choices.first() {
-                    let cleaned = choice.message.content.trim().to_string();
-                    if !cleaned.is_empty() {
-                        return cleaned;
+        Ok(resp) => {
+            if resp.status().is_success() {
+                if let Ok(body) = resp.json::<ChatCompletionResponse>().await {
+                    if let Some(choice) = body.choices.first() {
+                        let cleaned = choice.message.content.trim().to_string();
+                        let cleaned = cleaned.trim_matches('"').trim_matches('\'').trim();
+                        if !cleaned.is_empty() {
+                            return cleaned.to_string();
+                        }
                     }
                 }
+            } else {
+                let status = resp.status();
+                let err = resp.text().await.unwrap_or_default();
+                eprintln!("[Spitit Hinglish LLM] HTTP {status}: {err}");
             }
             raw_text.to_string()
         }
-        _ => raw_text.to_string(),
+        Err(e) => {
+            eprintln!("[Spitit Hinglish LLM Network Error] {e}");
+            raw_text.to_string()
+        }
     }
 }
 

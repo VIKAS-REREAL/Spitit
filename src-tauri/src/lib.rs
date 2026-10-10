@@ -15,9 +15,9 @@ use serde::Serialize;
 use settings::UserSettings;
 use std::sync::{Arc, Mutex};
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
-    Emitter, Manager,
+    Emitter, Manager, Wry,
 };
 use windows::core::PCWSTR;
 use windows::Win32::System::Registry::{
@@ -42,6 +42,7 @@ struct AppState {
     app_tracker: Arc<AppTracker>,
     api_key: Mutex<String>,
     settings: Mutex<UserSettings>,
+    tray_lang_items: Mutex<Option<(CheckMenuItem<Wry>, CheckMenuItem<Wry>)>>,
 }
 
 pub fn bring_main_window_to_front(app: &tauri::AppHandle) {
@@ -126,7 +127,7 @@ fn get_all_settings(state: tauri::State<AppState>) -> UserSettings {
 }
 
 #[tauri::command]
-fn save_all_settings(state: tauri::State<AppState>, new_settings: UserSettings) -> Result<(), String> {
+fn save_all_settings(state: tauri::State<AppState>, app: tauri::AppHandle, new_settings: UserSettings) -> Result<(), String> {
     let mode = match new_settings.mode.to_lowercase().as_str() {
         "toggle" => ActivationMode::Toggle,
         _ => ActivationMode::Hold,
@@ -144,6 +145,13 @@ fn save_all_settings(state: tauri::State<AppState>, new_settings: UserSettings) 
 
     *state.language.lock().unwrap() = new_settings.language.clone();
     *state.settings.lock().unwrap() = new_settings.clone();
+    let _ = app.emit("language_changed", &new_settings.language);
+    let tray_items = state.tray_lang_items.lock().unwrap().clone();
+    if let Some((en_item, hi_item)) = tray_items {
+        let is_en = new_settings.language != "hinglish";
+        let _ = en_item.set_checked(is_en);
+        let _ = hi_item.set_checked(!is_en);
+    }
     settings::save_settings(&new_settings)
 }
 
@@ -201,11 +209,18 @@ fn get_language(state: tauri::State<AppState>) -> String {
 }
 
 #[tauri::command]
-fn set_language(state: tauri::State<AppState>, lang: String) -> Result<(), String> {
+fn set_language(state: tauri::State<AppState>, app: tauri::AppHandle, lang: String) -> Result<(), String> {
     *state.language.lock().unwrap() = lang.clone();
     let mut s = state.settings.lock().unwrap();
-    s.language = lang;
+    s.language = lang.clone();
     let _ = settings::save_settings(&s);
+    let _ = app.emit("language_changed", &lang);
+    let tray_items = state.tray_lang_items.lock().unwrap().clone();
+    if let Some((en_item, hi_item)) = tray_items {
+        let is_en = lang != "hinglish";
+        let _ = en_item.set_checked(is_en);
+        let _ = hi_item.set_checked(!is_en);
+    }
     Ok(())
 }
 
@@ -464,7 +479,8 @@ pub fn run() {
         language: Mutex::new(initial_settings.language.clone()),
         app_tracker: tracker.clone(),
         api_key: Mutex::new(init_key.clone()),
-        settings: Mutex::new(initial_settings),
+        settings: Mutex::new(initial_settings.clone()),
+        tray_lang_items: Mutex::new(None),
     };
 
     tauri::Builder::default()
@@ -488,10 +504,37 @@ pub fn run() {
                 bring_main_window_to_front(&handle);
             }
 
-            // Setup System Tray with official icon and menu
-            let quit_i = MenuItem::with_id(&handle, "quit", "Quit Spitit", true, None::<&str>)?;
+            // Setup System Tray with official icon and menu (including Language Quick Swap)
             let open_i = MenuItem::with_id(&handle, "open", "Open Spitit", true, None::<&str>)?;
-            let menu = Menu::with_items(&handle, &[&open_i, &quit_i])?;
+            let sep1 = PredefinedMenuItem::separator(&handle)?;
+            let is_en = initial_settings.language != "hinglish";
+            let is_hi = initial_settings.language == "hinglish";
+            let lang_en_i = CheckMenuItem::with_id(
+                &handle,
+                "lang_en",
+                "English (Fast)",
+                true,
+                is_en,
+                None::<&str>,
+            )?;
+            let lang_hinglish_i = CheckMenuItem::with_id(
+                &handle,
+                "lang_hinglish",
+                "Hinglish (AI Enhanced)",
+                true,
+                is_hi,
+                None::<&str>,
+            )?;
+            let sep2 = PredefinedMenuItem::separator(&handle)?;
+            let quit_i = MenuItem::with_id(&handle, "quit", "Quit Spitit", true, None::<&str>)?;
+            let menu = Menu::with_items(
+                &handle,
+                &[&open_i, &sep1, &lang_en_i, &lang_hinglish_i, &sep2, &quit_i],
+            )?;
+
+            // Save tray check items in AppState for two-way live sync with settings UI
+            *app.state::<AppState>().tray_lang_items.lock().unwrap() =
+                Some((lang_en_i.clone(), lang_hinglish_i.clone()));
 
             let mut tray_b = TrayIconBuilder::new()
                 .menu(&menu)
@@ -507,6 +550,32 @@ pub fn run() {
                 .on_menu_event(move |app, event| match event.id.as_ref() {
                     "open" => {
                         bring_main_window_to_front(app);
+                    }
+                    "lang_en" => {
+                        let state = app.state::<AppState>();
+                        *state.language.lock().unwrap() = "en".to_string();
+                        let mut s = state.settings.lock().unwrap();
+                        s.language = "en".to_string();
+                        let _ = settings::save_settings(&s);
+                        let _ = app.emit("language_changed", "en");
+                        let tray_items = state.tray_lang_items.lock().unwrap().clone();
+                        if let Some((en_item, hi_item)) = tray_items {
+                            let _ = en_item.set_checked(true);
+                            let _ = hi_item.set_checked(false);
+                        }
+                    }
+                    "lang_hinglish" => {
+                        let state = app.state::<AppState>();
+                        *state.language.lock().unwrap() = "hinglish".to_string();
+                        let mut s = state.settings.lock().unwrap();
+                        s.language = "hinglish".to_string();
+                        let _ = settings::save_settings(&s);
+                        let _ = app.emit("language_changed", "hinglish");
+                        let tray_items = state.tray_lang_items.lock().unwrap().clone();
+                        if let Some((en_item, hi_item)) = tray_items {
+                            let _ = en_item.set_checked(false);
+                            let _ = hi_item.set_checked(true);
+                        }
                     }
                     "quit" => {
                         std::process::exit(0);
