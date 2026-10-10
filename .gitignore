@@ -7,12 +7,31 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies & Build outputs
 node_modules
 dist
 dist-ssr
 *.local
+target/
+src-tauri/target/
 
-# Editor directories and files
+# Binaries & Installers (Bulky files excluded)
+*.exe
+*.msi
+*.msix
+*.appx
+*.pdb
+
+# Scratch test scripts & captures
+test_*.ps1
+find_*.ps1
+capture_pill.ps1
+measure_ram.ps1
+list_all_windows.ps1
+run_cmd.bat
+real_tauri_*
+
+# Editor & OS files
 .vscode/*
 !.vscode/extensions.json
 .idea

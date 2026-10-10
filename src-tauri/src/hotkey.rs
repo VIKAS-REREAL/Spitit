@@ -1,6 +1,6 @@
 //! REREAL Spitit v3: Low-Level Global Keyboard Hook (WH_KEYBOARD_LL).
-//! Supports modifier-only combos (Alt+LShift), hold mode, toggle mode,
-//! window-switch tolerance, and Alt+Shift layout debounce.
+//! Supports customizable modifier combinations, hold mode, toggle mode,
+//! window-switch tolerance, and layout debouncing.
 
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -9,8 +9,7 @@ use std::thread;
 use windows::Win32::Foundation::{HINSTANCE, LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, GetMessageW, PostThreadMessageW, SetWindowsHookExW, UnhookWindowsHookEx,
-    HHOOK, KBDLLHOOKSTRUCT, MSG, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN,
-    WM_SYSKEYUP,
+    HHOOK, KBDLLHOOKSTRUCT, MSG, WH_KEYBOARD_LL, WM_KEYDOWN, WM_QUIT, WM_SYSKEYDOWN,
 };
 
 // Common virtual key constants
@@ -26,10 +25,25 @@ pub const VK_CONTROL: u32 = 0x11;
 pub const VK_SPACE: u32 = 0x20;
 pub const VK_ESCAPE: u32 = 0x1B;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ActivationMode {
     Hold,
     Toggle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum HotkeyCombo {
+    AltShift,
+    CtrlSpace,
+    AltSpace,
+    CtrlShift,
+    RightAlt,
+}
+
+impl Default for HotkeyCombo {
+    fn default() -> Self {
+        HotkeyCombo::AltShift
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,11 +55,146 @@ pub enum HotkeyEvent {
 
 struct HookState {
     mode: ActivationMode,
+    combo: HotkeyCombo,
     is_recording: bool,
     pressed_keys: HashSet<u32>,
     hold_triggered: bool,
     toggle_pressed: bool,
+    last_toggle: std::time::Instant,
     event_sender: Option<std::sync::mpsc::Sender<HotkeyEvent>>,
+}
+
+impl HookState {
+    fn new(
+        mode: ActivationMode,
+        combo: HotkeyCombo,
+        tx: Option<std::sync::mpsc::Sender<HotkeyEvent>>,
+    ) -> Self {
+        Self {
+            mode,
+            combo,
+            is_recording: false,
+            pressed_keys: HashSet::new(),
+            hold_triggered: false,
+            toggle_pressed: false,
+            last_toggle: std::time::Instant::now() - std::time::Duration::from_secs(1),
+            event_sender: tx,
+        }
+    }
+
+    fn is_combo_active(&self) -> bool {
+        let alt = self.pressed_keys.contains(&VK_LMENU)
+            || self.pressed_keys.contains(&VK_RMENU)
+            || self.pressed_keys.contains(&VK_MENU);
+        let shift = self.pressed_keys.contains(&VK_LSHIFT)
+            || self.pressed_keys.contains(&VK_RSHIFT)
+            || self.pressed_keys.contains(&VK_SHIFT);
+        let ctrl = self.pressed_keys.contains(&VK_LCONTROL)
+            || self.pressed_keys.contains(&VK_RCONTROL)
+            || self.pressed_keys.contains(&VK_CONTROL);
+        let space = self.pressed_keys.contains(&VK_SPACE);
+        let ralt = self.pressed_keys.contains(&VK_RMENU);
+
+        match self.combo {
+            HotkeyCombo::AltShift => alt && shift,
+            HotkeyCombo::CtrlSpace => ctrl && space,
+            HotkeyCombo::AltSpace => alt && space,
+            HotkeyCombo::CtrlShift => ctrl && shift,
+            HotkeyCombo::RightAlt => ralt,
+        }
+    }
+
+    fn is_key_in_combo(&self, vk: u32) -> bool {
+        match self.combo {
+            HotkeyCombo::AltShift => {
+                vk == VK_LMENU
+                    || vk == VK_RMENU
+                    || vk == VK_MENU
+                    || vk == VK_LSHIFT
+                    || vk == VK_RSHIFT
+                    || vk == VK_SHIFT
+            }
+            HotkeyCombo::CtrlSpace => {
+                vk == VK_LCONTROL
+                    || vk == VK_RCONTROL
+                    || vk == VK_CONTROL
+                    || vk == VK_SPACE
+            }
+            HotkeyCombo::AltSpace => {
+                vk == VK_LMENU
+                    || vk == VK_RMENU
+                    || vk == VK_MENU
+                    || vk == VK_SPACE
+            }
+            HotkeyCombo::CtrlShift => {
+                vk == VK_LCONTROL
+                    || vk == VK_RCONTROL
+                    || vk == VK_CONTROL
+                    || vk == VK_LSHIFT
+                    || vk == VK_RSHIFT
+                    || vk == VK_SHIFT
+            }
+            HotkeyCombo::RightAlt => vk == VK_RMENU,
+        }
+    }
+
+    pub fn handle_key_event(&mut self, vk: u32, is_down: bool) -> Option<HotkeyEvent> {
+        if is_down {
+            self.pressed_keys.insert(vk);
+
+            if vk == VK_ESCAPE && self.is_recording {
+                self.is_recording = false;
+                self.hold_triggered = false;
+                self.toggle_pressed = false;
+                return Some(HotkeyEvent::Cancel);
+            }
+
+            let combo_active = self.is_combo_active();
+
+            match self.mode {
+                ActivationMode::Hold => {
+                    if combo_active && !self.hold_triggered {
+                        self.hold_triggered = true;
+                        self.is_recording = true;
+                        return Some(HotkeyEvent::Start);
+                    }
+                }
+                ActivationMode::Toggle => {
+                    if combo_active
+                        && !self.toggle_pressed
+                        && self.last_toggle.elapsed() >= std::time::Duration::from_millis(300)
+                    {
+                        self.toggle_pressed = true;
+                        self.last_toggle = std::time::Instant::now();
+                        self.is_recording = !self.is_recording;
+                        if self.is_recording {
+                            return Some(HotkeyEvent::Start);
+                        } else {
+                            return Some(HotkeyEvent::Stop);
+                        }
+                    }
+                }
+            }
+        } else {
+            self.pressed_keys.remove(&vk);
+
+            match self.mode {
+                ActivationMode::Hold => {
+                    if self.is_key_in_combo(vk) && self.hold_triggered {
+                        self.hold_triggered = false;
+                        self.is_recording = false;
+                        return Some(HotkeyEvent::Stop);
+                    }
+                }
+                ActivationMode::Toggle => {
+                    if !self.is_combo_active() {
+                        self.toggle_pressed = false;
+                    }
+                }
+            }
+        }
+        None
+    }
 }
 
 // Global thread-safe state for the C callback
@@ -54,31 +203,28 @@ static HOOK_THREAD_ID: Mutex<u32> = Mutex::new(0);
 static IS_RUNNING: AtomicBool = AtomicBool::new(false);
 
 pub struct HotkeyManager {
-    event_rx: Option<std::sync::mpsc::Receiver<HotkeyEvent>>,
     mode: Arc<Mutex<ActivationMode>>,
+    combo: Arc<Mutex<HotkeyCombo>>,
 }
 
 impl HotkeyManager {
-    pub fn new(mode: ActivationMode) -> (Self, std::sync::mpsc::Receiver<HotkeyEvent>) {
+    pub fn new(
+        mode: ActivationMode,
+        combo: HotkeyCombo,
+    ) -> (Self, std::sync::mpsc::Receiver<HotkeyEvent>) {
         let (tx, rx) = std::sync::mpsc::channel();
         let mode_arc = Arc::new(Mutex::new(mode));
+        let combo_arc = Arc::new(Mutex::new(combo));
 
         {
             let mut state = STATE.lock().unwrap();
-            *state = Some(HookState {
-                mode,
-                is_recording: false,
-                pressed_keys: HashSet::new(),
-                hold_triggered: false,
-                toggle_pressed: false,
-                event_sender: Some(tx),
-            });
+            *state = Some(HookState::new(mode, combo, Some(tx)));
         }
 
         (
             Self {
-                event_rx: None,
                 mode: mode_arc,
+                combo: combo_arc,
             },
             rx,
         )
@@ -90,29 +236,27 @@ impl HotkeyManager {
         }
         IS_RUNNING.store(true, Ordering::SeqCst);
 
-        thread::spawn(|| {
-            unsafe {
-                let tid = windows::Win32::System::Threading::GetCurrentThreadId();
-                *HOOK_THREAD_ID.lock().unwrap() = tid;
+        thread::spawn(|| unsafe {
+            let tid = windows::Win32::System::Threading::GetCurrentThreadId();
+            *HOOK_THREAD_ID.lock().unwrap() = tid;
 
-                let hook: HHOOK = SetWindowsHookExW(
-                    WH_KEYBOARD_LL,
-                    Some(low_level_keyboard_proc),
-                    HINSTANCE(std::ptr::null_mut()),
-                    0,
-                )
-                .expect("Failed to install WH_KEYBOARD_LL hook");
+            let hook: HHOOK = SetWindowsHookExW(
+                WH_KEYBOARD_LL,
+                Some(low_level_keyboard_proc),
+                HINSTANCE(std::ptr::null_mut()),
+                0,
+            )
+            .expect("Failed to install WH_KEYBOARD_LL hook");
 
-                let mut msg = MSG::default();
-                while GetMessageW(&mut msg, None, 0, 0).as_bool() {
-                    if msg.message == WM_QUIT {
-                        break;
-                    }
+            let mut msg = MSG::default();
+            while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                if msg.message == WM_QUIT {
+                    break;
                 }
-
-                let _ = UnhookWindowsHookEx(hook);
-                IS_RUNNING.store(false, Ordering::SeqCst);
             }
+
+            let _ = UnhookWindowsHookEx(hook);
+            IS_RUNNING.store(false, Ordering::SeqCst);
         });
     }
 
@@ -125,6 +269,25 @@ impl HotkeyManager {
             s.hold_triggered = false;
             s.toggle_pressed = false;
         }
+    }
+
+    pub fn get_mode(&self) -> ActivationMode {
+        *self.mode.lock().unwrap()
+    }
+
+    pub fn set_combo(&self, new_combo: HotkeyCombo) {
+        *self.combo.lock().unwrap() = new_combo;
+        let mut state = STATE.lock().unwrap();
+        if let Some(s) = state.as_mut() {
+            s.combo = new_combo;
+            s.is_recording = false;
+            s.hold_triggered = false;
+            s.toggle_pressed = false;
+        }
+    }
+
+    pub fn get_combo(&self) -> HotkeyCombo {
+        *self.combo.lock().unwrap()
     }
 
     pub fn stop(&self) {
@@ -148,94 +311,12 @@ unsafe extern "system" fn low_level_keyboard_proc(
         let kbd_struct = *(lparam.0 as *const KBDLLHOOKSTRUCT);
         let vk = kbd_struct.vkCode;
         let is_down = wparam.0 == WM_KEYDOWN as usize || wparam.0 == WM_SYSKEYDOWN as usize;
-        let is_up = wparam.0 == WM_KEYUP as usize || wparam.0 == WM_SYSKEYUP as usize;
 
         let mut lock = STATE.lock().unwrap();
         if let Some(state) = lock.as_mut() {
-            if is_down {
-                state.pressed_keys.insert(vk);
-
-                // Escape key cancels active recording
-                if vk == VK_ESCAPE && state.is_recording {
-                    state.is_recording = false;
-                    state.hold_triggered = false;
-                    state.toggle_pressed = false;
-                    if let Some(tx) = &state.event_sender {
-                        let _ = tx.send(HotkeyEvent::Cancel);
-                    }
-                } else {
-                    match state.mode {
-                        ActivationMode::Hold => {
-                            // Check if Alt + LShift is down
-                            let alt_down = state.pressed_keys.contains(&VK_LMENU)
-                                || state.pressed_keys.contains(&VK_RMENU)
-                                || state.pressed_keys.contains(&VK_MENU);
-                            let shift_down = state.pressed_keys.contains(&VK_LSHIFT)
-                                || state.pressed_keys.contains(&VK_RSHIFT)
-                                || state.pressed_keys.contains(&VK_SHIFT);
-
-                            if alt_down && shift_down && !state.hold_triggered {
-                                state.hold_triggered = true;
-                                state.is_recording = true;
-                                if let Some(tx) = &state.event_sender {
-                                    let _ = tx.send(HotkeyEvent::Start);
-                                }
-                            }
-                        }
-                        ActivationMode::Toggle => {
-                            let alt_down = state.pressed_keys.contains(&VK_LMENU)
-                                || state.pressed_keys.contains(&VK_RMENU)
-                                || state.pressed_keys.contains(&VK_MENU);
-                            let shift_down = state.pressed_keys.contains(&VK_LSHIFT)
-                                || state.pressed_keys.contains(&VK_RSHIFT)
-                                || state.pressed_keys.contains(&VK_SHIFT);
-
-                            if alt_down && shift_down {
-                                if !state.toggle_pressed {
-                                    state.toggle_pressed = true;
-                                    state.is_recording = !state.is_recording;
-                                    if let Some(tx) = &state.event_sender {
-                                        if state.is_recording {
-                                            let _ = tx.send(HotkeyEvent::Start);
-                                        } else {
-                                            let _ = tx.send(HotkeyEvent::Stop);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            } else if is_up {
-                state.pressed_keys.remove(&vk);
-
-                if state.mode == ActivationMode::Hold {
-                    // In Hold mode, only releasing a key of the combo stops recording!
-                    let is_combo_key = vk == VK_LMENU
-                        || vk == VK_RMENU
-                        || vk == VK_MENU
-                        || vk == VK_LSHIFT
-                        || vk == VK_RSHIFT
-                        || vk == VK_SHIFT;
-
-                    if is_combo_key && state.hold_triggered {
-                        state.hold_triggered = false;
-                        state.is_recording = false;
-                        if let Some(tx) = &state.event_sender {
-                            let _ = tx.send(HotkeyEvent::Stop);
-                        }
-                    }
-                } else if state.mode == ActivationMode::Toggle {
-                    let is_combo_key = vk == VK_LMENU
-                        || vk == VK_RMENU
-                        || vk == VK_MENU
-                        || vk == VK_LSHIFT
-                        || vk == VK_RSHIFT
-                        || vk == VK_SHIFT;
-
-                    if is_combo_key {
-                        state.toggle_pressed = false;
-                    }
+            if let Some(event) = state.handle_key_event(vk, is_down) {
+                if let Some(tx) = &state.event_sender {
+                    let _ = tx.send(event);
                 }
             }
         }

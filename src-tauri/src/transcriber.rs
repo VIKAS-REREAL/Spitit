@@ -6,36 +6,32 @@ use reqwest::multipart::{Form, Part};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-pub const MODEL_WHISPER: &str = "whisper-large-v3-turbo";
+pub const MODEL_WHISPER: &str = "whisper-large-v3";
 pub const MODEL_LLM: &str = "llama-3.1-8b-instant";
 
 pub const HINGLISH_WHISPER_PROMPT: &str = "\
-The speaker is an Indian person speaking Hinglish — a natural mix of Hindi and English. \
-Transcribe all Hindi words in Roman/English script (transliteration), NOT Devanagari. \
-English words should remain in English. \
-For example: 'yaar kya scene hai' not 'यार क्या सीन है'. \
-Another example: 'main kal office jaaunga' not 'मैं कल ऑफिस जाऊंगा'. \
-Write exactly what is spoken, do not translate.";
+Haan bhai, kal subah meeting hai toh sab prepare karke ready rakhna. \
+Main thodi der mein call karta hoon, don't worry everything is working smoothly. \
+Please check the document and update me on Slack. \
+Kya chal raha hai?";
 
 pub const HINGLISH_SYSTEM_PROMPT: &str = "\
-You are a Hinglish text normalizer. \
-The input is speech-to-text output of someone speaking Hinglish (Hindi words mixed with English, spoken casually).
-Your job:
-1. If any Hindi words appear in Devanagari script, convert them to Roman transliteration (e.g. 'यार' → 'yaar', 'क्या' → 'kya', 'हो गया' → 'ho gaya')
-2. Keep all English words exactly as they are
-3. Keep the exact meaning and words — do NOT translate, do NOT rephrase
-4. Fix obvious STT errors in context (e.g. \"main kal offer jaaunga\" → \"main kal office jaaunga\" if that makes more sense)
-5. Output ONLY the cleaned Hinglish text, nothing else
+You are an expert Hinglish (Hindi + English) text converter for Indian users.
+The input is speech-to-text transcript from an Indian speaker speaking Hinglish (Hindi words naturally mixed with English).
 
-Examples:
-Input: \"यार kya scene hai aaj\"
-Output: \"yaar kya scene hai aaj\"
-
-Input: \"I need to submit the report kal tak\"
-Output: \"I need to submit the report kal tak\"
-
-Input: \"bhai bahut zyada kaam hai\"
-Output: \"bhai bahut zyada kaam hai\"";
+CRITICAL RULES:
+1. Always write Hindi words in Roman / Latin script (English alphabet), NEVER in Devanagari script (Hindi characters).
+   Examples:
+   - 'हाँ भाई क्या हाल है' -> 'haan bhai kya haal hai'
+   - 'कल मिलते हैं' -> 'kal milte hain'
+   - 'काम हो गया' -> 'kaam ho gaya'
+   - 'main kal office jaaunga' -> 'main kal office jaaunga'
+2. Keep all English words in standard English (e.g. 'meeting', 'project', 'presentation', 'call', 'check', 'send').
+3. Do NOT translate Hindi words into English.
+4. Do NOT translate English words into Hindi.
+5. Preserve the exact words and meaning spoken by the user.
+6. Fix phonetic speech-to-text typos in Hindi/English words (e.g. 'kya seen hai' -> 'kya scene hai').
+7. Output ONLY the clean Hinglish text in Roman script. No explanations, no quotes, no extra conversational text.";
 
 pub const MIXED_HI_EN_PROMPT: &str = "\
 The speaker switches between Hindi and English. \
@@ -171,7 +167,8 @@ pub async fn transcribe(
     }
 
     // Hinglish post-processing: pass through LLM for Roman cleanup
-    if language == "hinglish" {
+    let has_devanagari = raw_text.chars().any(|c| ('\u{0900}'..='\u{097F}').contains(&c));
+    if language == "hinglish" || has_devanagari {
         raw_text = hinglish_cleanup(&client, api_key, &raw_text).await;
     }
 
@@ -270,5 +267,24 @@ pub async fn test_connection(api_key: &str) -> Result<String, String> {
     } else {
         let err_text = resp.text().await.unwrap_or_default();
         Err(format!("Connection failed: {err_text}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hinglish_prompts() {
+        assert!(HINGLISH_WHISPER_PROMPT.contains("Roman/English script"));
+        assert!(HINGLISH_WHISPER_PROMPT.contains("NOT Devanagari"));
+        assert!(HINGLISH_SYSTEM_PROMPT.contains("convert them to Roman transliteration"));
+    }
+
+    #[tokio::test]
+    async fn test_empty_api_key_error() {
+        let res = transcribe(vec![1, 2, 3], "", "hinglish").await;
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("Groq API key is not set"));
     }
 }
