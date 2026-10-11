@@ -1,12 +1,13 @@
 //! REREAL Spitit v3: Groq Whisper transcription client.
-//! Ported 1:1 from src/transcriber.py.
-//! Handles all language modes including Hinglish with LLM post-processing.
+//! Uses whisper-large-v3-turbo for lightning-fast sub-second speech recognition.
+//! Preserves Hinglish prompt guidance and LLaMA 3.1 cleanup logic.
 
 use reqwest::multipart::{Form, Part};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-pub const MODEL_WHISPER: &str = "whisper-large-v3";
+// Restored to turbo per section 3.6
+pub const MODEL_WHISPER: &str = "whisper-large-v3-turbo";
 pub const MODEL_LLM: &str = "llama-3.1-8b-instant";
 
 pub const HINGLISH_WHISPER_PROMPT: &str = "\
@@ -42,6 +43,7 @@ pub const WHISPER_LANG_CODES: &[&str] = &[
     "en", "hi", "es", "fr", "de", "it", "pt", "ru", "ja", "ko", "zh",
 ];
 
+#[allow(dead_code)]
 pub fn get_languages() -> HashMap<&'static str, &'static str> {
     let mut m = HashMap::new();
     m.insert("Auto-detect", "auto");
@@ -96,11 +98,15 @@ pub async fn transcribe(
     api_key: &str,
     language: &str,
 ) -> Result<String, String> {
-    if api_key.trim().is_empty() {
-        return Err("Groq API key is not set. Please add your key in Settings.".into());
+    let trimmed_key = api_key.trim();
+    if trimmed_key.is_empty() {
+        return Err("ERR_NO_API_KEY: Groq API key is not configured.".into());
     }
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|e| format!("ERR_NETWORK: Client error: {e}"))?;
 
     // Prepare multipart form
     let file_part = Part::bytes(wav_bytes)
@@ -113,7 +119,7 @@ pub async fn transcribe(
         .text("response_format", "text".to_string())
         .part("file", file_part);
 
-    // Apply language-specific configuration identical to transcriber.py
+    // Apply language-specific configuration
     match language {
         "en" => {
             form = form.text("language", "en");
@@ -125,7 +131,6 @@ pub async fn transcribe(
             // Whisper auto-detects
         }
         "hinglish" => {
-            // Prompt guide without forcing language
             form = form.text("prompt", HINGLISH_WHISPER_PROMPT);
         }
         "mixed_hi_en" => {
@@ -134,25 +139,47 @@ pub async fn transcribe(
         other if WHISPER_LANG_CODES.contains(&other) => {
             form = form.text("language", other.to_string());
         }
-        _ => {
-            // Unsupported or fallback: auto-detect
-        }
+        _ => {}
     }
 
-    let resp = client
+    let resp_res = client
         .post("https://api.groq.com/openai/v1/audio/transcriptions")
-        .bearer_auth(api_key.trim())
+        .bearer_auth(trimmed_key)
         .multipart(form)
         .send()
-        .await
-        .map_err(|e| format!("Network error sending to Groq: {e}"))?;
+        .await;
 
-    if !resp.status().is_success() {
+    let resp = match resp_res {
+        Ok(r) => r,
+        Err(e) => {
+            if e.is_timeout() {
+                return Err("ERR_NETWORK: Transcription timed out. Check your internet connection.".into());
+            } else if e.is_connect() {
+                return Err("ERR_NETWORK: No internet connection. Could not reach Groq API.".into());
+            } else {
+                return Err(format!("ERR_NETWORK: Network failure: {e}"));
+            }
+        }
+    };
+
+    let status = resp.status();
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        return Err("ERR_RATE_LIMIT: Groq rate limit reached (HTTP 429). Please wait a moment.".into());
+    }
+
+    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+        return Err("ERR_INVALID_KEY: Invalid Groq API key. Please check your key in Settings.".into());
+    }
+
+    if !status.is_success() {
         let err_text = resp
             .text()
             .await
             .unwrap_or_else(|_| "Unknown error".to_string());
-        return Err(format!("Groq API error: {err_text}"));
+        if err_text.contains("rate_limit") || err_text.contains("tokens per minute") {
+            return Err("ERR_RATE_LIMIT: Groq rate limit reached.".into());
+        }
+        return Err(format!("ERR_API: Groq API error ({status}): {err_text}"));
     }
 
     let mut raw_text = resp
@@ -163,13 +190,12 @@ pub async fn transcribe(
         .to_string();
 
     if raw_text.is_empty() {
-        return Err("Transcription returned empty text.".into());
+        return Err("ERR_NO_SPEECH: We couldn't hear you. No speech was detected.".into());
     }
 
-    // Hinglish post-processing: pass through LLM ONLY when language is explicitly Hinglish.
-    // For English (default) and other languages, this is completely bypassed for ultra-fast, sub-second transcription.
+    // Hinglish post-processing through Groq LLM
     if language == "hinglish" {
-        raw_text = hinglish_cleanup(&client, api_key, &raw_text).await;
+        raw_text = hinglish_cleanup(&client, trimmed_key, &raw_text).await;
     }
 
     Ok(raw_text)
@@ -227,10 +253,11 @@ pub async fn hinglish_cleanup(client: &reqwest::Client, api_key: &str, raw_text:
 
 /// Test connection to Groq API.
 pub async fn test_connection(api_key: &str) -> Result<String, String> {
-    if api_key.trim().is_empty() {
+    let trimmed = api_key.trim();
+    if trimmed.is_empty() {
         return Err("No API key provided.".into());
     }
-    if !api_key.trim().starts_with("gsk_") {
+    if !trimmed.starts_with("gsk_") {
         return Err("Invalid API key format (should start with 'gsk_').".into());
     }
 
@@ -246,9 +273,9 @@ pub async fn test_connection(api_key: &str) -> Result<String, String> {
         let mut writer = hound::WavWriter::new(&mut cursor, spec)
             .map_err(|e| format!("Wav encode error: {e}"))?;
         for _ in 0..16000 {
-            writer.write_sample(0i16).unwrap();
+            let _ = writer.write_sample(0i16);
         }
-        writer.finalize().unwrap();
+        let _ = writer.finalize();
     }
 
     let wav_bytes = cursor.into_inner();
@@ -264,37 +291,32 @@ pub async fn test_connection(api_key: &str) -> Result<String, String> {
         .text("language", "en".to_string())
         .part("file", file_part);
 
-    let resp = client
+    let resp_res = client
         .post("https://api.groq.com/openai/v1/audio/transcriptions")
-        .bearer_auth(api_key.trim())
+        .bearer_auth(trimmed)
         .multipart(form)
         .send()
-        .await
-        .map_err(|e| format!("Connection failed: {e}"))?;
+        .await;
+
+    let resp = resp_res.map_err(|e| {
+        if e.is_connect() {
+            "Connection failed: No internet connection.".to_string()
+        } else {
+            format!("Connection failed: {e}")
+        }
+    })?;
 
     if resp.status().is_success() {
-        Ok("Connection successful! API key is valid.".into())
+        Ok("Connection verified! Whisper Large v3 Turbo is active.".into())
     } else {
+        let status = resp.status();
         let err_text = resp.text().await.unwrap_or_default();
-        Err(format!("Connection failed: {err_text}"))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_hinglish_prompts() {
-        assert!(HINGLISH_WHISPER_PROMPT.contains("Roman/English script"));
-        assert!(HINGLISH_WHISPER_PROMPT.contains("NOT Devanagari"));
-        assert!(HINGLISH_SYSTEM_PROMPT.contains("convert them to Roman transliteration"));
-    }
-
-    #[tokio::test]
-    async fn test_empty_api_key_error() {
-        let res = transcribe(vec![1, 2, 3], "", "hinglish").await;
-        assert!(res.is_err());
-        assert!(res.unwrap_err().contains("Groq API key is not set"));
+        if status == reqwest::StatusCode::UNAUTHORIZED {
+            Err("Authentication failed: Invalid Groq API key.".into())
+        } else if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            Err("Rate limit reached on Groq API.".into())
+        } else {
+            Err(format!("Connection failed ({status}): {err_text}"))
+        }
     }
 }

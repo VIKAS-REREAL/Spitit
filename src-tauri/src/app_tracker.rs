@@ -1,39 +1,53 @@
 //! REREAL Spitit v3: Active Foreground Application Tracker & Icon Extractor.
-//! Uses SetWinEventHook(EVENT_SYSTEM_FOREGROUND) to detect foreground window switches,
-//! resolves executable paths, detects active browser tabs & UWP apps (like WhatsApp),
-//! and extracts icons directly from window handles (WM_GETICON) or exe binaries.
+//! Complies with Section 2.5:
+//! 1. Reliable PNG icon transport with clean 32-bit RGBA alpha channel (no black backgrounds).
+//! 2. Resolves packaged UWP/Store apps by checking child CoreWindow.
+//! 3. Retries failed lookups rather than caching None forever.
+//! 4. Non-blocking asynchronous icon extraction.
+//! 5. Captures target window at hotkey press for deterministic paste.
 
+use image::{ImageBuffer, ImageFormat, Rgba};
 use serde::Serialize;
 use std::collections::HashMap;
+use std::io::Cursor;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use windows::Win32::Foundation::{CloseHandle, HWND, WPARAM, LPARAM};
+use std::time::{Duration, Instant};
+use windows::core::PCWSTR;
+use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits, GetObjectW, BITMAP,
-    BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HDC,
+    CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits, GetObjectW, BITMAP, BITMAPINFO,
+    BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HDC,
 };
 use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
-pub const WINEVENT_OUTOFCONTEXT: u32 = 0;
-pub const WINEVENT_SKIPOWNPROCESS: u32 = 2;
 use windows::Win32::UI::Shell::{SHGetFileInfoW, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON};
 use windows::Win32::UI::WindowsAndMessaging::{
-    DestroyIcon, GetForegroundWindow, GetIconInfo, GetWindowTextW, GetWindowThreadProcessId,
-    SendMessageTimeoutW, EVENT_SYSTEM_FOREGROUND, HICON, ICONINFO, ICON_BIG, ICON_SMALL,
-    SMTO_ABORTIFHUNG, WM_GETICON,
+    DestroyIcon, FindWindowExW, GetClassLongPtrW, GetForegroundWindow, GetIconInfo, GetWindowTextW,
+    GetWindowThreadProcessId, SendMessageTimeoutW, EVENT_SYSTEM_FOREGROUND, GCLP_HICON,
+    GCLP_HICONSM, HICON, ICONINFO, ICON_BIG, ICON_SMALL, SMTO_ABORTIFHUNG, WM_GETICON,
 };
+
+pub const WINEVENT_OUTOFCONTEXT: u32 = 0;
+pub const WINEVENT_SKIPOWNPROCESS: u32 = 2;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct AppInfo {
     pub name: String,
     pub exe_path: String,
     pub icon_data_url: Option<String>,
+    pub hwnd: isize,
+}
+
+struct CacheEntry {
+    icon_url: Option<String>,
+    timestamp: Instant,
 }
 
 pub struct AppTracker {
-    cache: Arc<Mutex<HashMap<String, Option<String>>>>,
+    cache: Arc<Mutex<HashMap<String, CacheEntry>>>,
 }
 
 impl AppTracker {
@@ -49,7 +63,12 @@ impl AppTracker {
             if hwnd.0.is_null() {
                 return fallback_app_info();
             }
+            self.resolve_app_for_hwnd(hwnd)
+        }
+    }
 
+    pub fn resolve_app_for_hwnd(&self, hwnd: HWND) -> AppInfo {
+        unsafe {
             let mut title_buf = [0u16; 512];
             let title_len = GetWindowTextW(hwnd, &mut title_buf);
             let window_title = if title_len > 0 {
@@ -58,15 +77,18 @@ impl AppTracker {
                 String::new()
             };
 
+            // Detect child CoreWindow for UWP ApplicationFrameHost
+            let target_hwnd = resolve_real_window_hwnd(hwnd);
+
             let mut pid = 0u32;
-            GetWindowThreadProcessId(hwnd, Some(&mut pid));
+            GetWindowThreadProcessId(target_hwnd, Some(&mut pid));
             if pid == 0 {
-                return fallback_app_info();
+                return fallback_app_info_with_hwnd(hwnd.0 as isize);
             }
 
             let process_handle = match OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
                 Ok(h) => h,
-                Err(_) => return fallback_app_info(),
+                Err(_) => return fallback_app_info_with_hwnd(hwnd.0 as isize),
             };
 
             let mut path_buf = [0u16; 1024];
@@ -80,7 +102,7 @@ impl AppTracker {
             let _ = CloseHandle(process_handle);
 
             if query_res.is_err() || size == 0 {
-                return fallback_app_info();
+                return fallback_app_info_with_hwnd(hwnd.0 as isize);
             }
 
             let exe_path = String::from_utf16_lossy(&path_buf[..size as usize]);
@@ -95,7 +117,6 @@ impl AppTracker {
 
             let mut display_name = stem.clone();
 
-            // Detect WhatsApp (desktop & Windows Store UWP)
             if stem_lower.contains("whatsapp") || title_lower.contains("whatsapp") {
                 display_name = "WhatsApp".to_string();
             } else if stem_lower == "applicationframehost" {
@@ -107,7 +128,6 @@ impl AppTracker {
                 || stem_lower == "brave"
                 || stem_lower == "firefox"
             {
-                // Active browser tab / website identification
                 if title_lower.contains("whatsapp") {
                     display_name = "WhatsApp Web".to_string();
                 } else if title_lower.contains("youtube") {
@@ -148,17 +168,39 @@ impl AppTracker {
                 display_name = "Notepad".to_string();
             }
 
-            // Extract icon: first try directly from window handle (works on WhatsApp & UWP)
+            // Extract icon with smart caching:
+            // Successful icons cached indefinitely.
+            // Failed lookups expire after 5 seconds so they can be retried.
             let cache_key = format!("{}:{}", display_name, exe_path);
             let icon_data_url = {
                 let mut cache_lock = self.cache.lock().unwrap();
-                if let Some(cached) = cache_lock.get(&cache_key) {
-                    cached.clone()
-                } else {
-                    let extracted = extract_icon_from_hwnd(hwnd)
+                let should_extract = match cache_lock.get(&cache_key) {
+                    Some(entry) => {
+                        if entry.icon_url.is_some() {
+                            false
+                        } else {
+                            // Retry if older than 5 seconds
+                            entry.timestamp.elapsed() > Duration::from_secs(5)
+                        }
+                    }
+                    None => true,
+                };
+
+                if should_extract {
+                    let extracted = extract_icon_from_hwnd(target_hwnd)
+                        .or_else(|| extract_icon_from_hwnd(hwnd))
                         .or_else(|| extract_icon_from_exe(&exe_path));
-                    cache_lock.insert(cache_key, extracted.clone());
+
+                    cache_lock.insert(
+                        cache_key.clone(),
+                        CacheEntry {
+                            icon_url: extracted.clone(),
+                            timestamp: Instant::now(),
+                        },
+                    );
                     extracted
+                } else {
+                    cache_lock.get(&cache_key).and_then(|e| e.icon_url.clone())
                 }
             };
 
@@ -166,6 +208,7 @@ impl AppTracker {
                 name: display_name,
                 exe_path,
                 icon_data_url,
+                hwnd: hwnd.0 as isize,
             }
         }
     }
@@ -176,12 +219,46 @@ fn fallback_app_info() -> AppInfo {
         name: "Active App".to_string(),
         exe_path: "".to_string(),
         icon_data_url: None,
+        hwnd: 0,
     }
 }
 
-/// Tries extracting the icon directly from the HWND using WM_GETICON.
-/// This works for packaged apps like WhatsApp, Telegram, etc., where file ACLs block disk reads.
+fn fallback_app_info_with_hwnd(hwnd: isize) -> AppInfo {
+    AppInfo {
+        name: "Active App".to_string(),
+        exe_path: "".to_string(),
+        icon_data_url: None,
+        hwnd,
+    }
+}
+
+/// For UWP apps, ApplicationFrameHost hosts the window. Find the child Windows.UI.Core.CoreWindow.
+unsafe fn resolve_real_window_hwnd(hwnd: HWND) -> HWND {
+    let mut class_buf = [0u16; 64];
+    let class_len = windows::Win32::UI::WindowsAndMessaging::GetClassNameW(hwnd, &mut class_buf);
+    if class_len > 0 {
+        let class_name = String::from_utf16_lossy(&class_buf[..class_len as usize]);
+        if class_name == "ApplicationFrameWindow" {
+            let core_window_class: Vec<u16> = "Windows.UI.Core.CoreWindow\0".encode_utf16().collect();
+            let child = FindWindowExW(
+                hwnd,
+                HWND(std::ptr::null_mut()),
+                PCWSTR(core_window_class.as_ptr()),
+                PCWSTR(std::ptr::null()),
+            );
+            if let Ok(c) = child {
+                if !c.0.is_null() {
+                    return c;
+                }
+            }
+        }
+    }
+    hwnd
+}
+
+/// Tries extracting icon from window handle via WM_GETICON or class icon.
 unsafe fn extract_icon_from_hwnd(hwnd: HWND) -> Option<String> {
+    // 1. WM_GETICON BIG
     let mut hicon_val = 0usize;
     let _ = SendMessageTimeoutW(
         hwnd,
@@ -189,30 +266,42 @@ unsafe fn extract_icon_from_hwnd(hwnd: HWND) -> Option<String> {
         WPARAM(ICON_BIG as usize),
         LPARAM(0),
         SMTO_ABORTIFHUNG,
-        40,
+        35,
         Some(&mut hicon_val),
     );
     if hicon_val != 0 {
-        return hicon_to_data_url(HICON(hicon_val as *mut _), false);
+        return hicon_to_png_data_url(HICON(hicon_val as *mut _), false);
     }
 
+    // 2. WM_GETICON SMALL
     let _ = SendMessageTimeoutW(
         hwnd,
         WM_GETICON,
         WPARAM(ICON_SMALL as usize),
         LPARAM(0),
         SMTO_ABORTIFHUNG,
-        40,
+        35,
         Some(&mut hicon_val),
     );
     if hicon_val != 0 {
-        return hicon_to_data_url(HICON(hicon_val as *mut _), false);
+        return hicon_to_png_data_url(HICON(hicon_val as *mut _), false);
+    }
+
+    // 3. Class Icon (instant, non-blocking)
+    let class_icon = GetClassLongPtrW(hwnd, GCLP_HICON);
+    if class_icon != 0 {
+        return hicon_to_png_data_url(HICON(class_icon as *mut _), false);
+    }
+
+    let class_icon_sm = GetClassLongPtrW(hwnd, GCLP_HICONSM);
+    if class_icon_sm != 0 {
+        return hicon_to_png_data_url(HICON(class_icon_sm as *mut _), false);
     }
 
     None
 }
 
-/// Extracts the 32bpp icon for the given executable path via SHGetFileInfoW.
+/// Extracts 32bpp icon for executable path via SHGetFileInfoW.
 unsafe fn extract_icon_from_exe(exe_path: &str) -> Option<String> {
     let wide_path: Vec<u16> = exe_path.encode_utf16().chain(std::iter::once(0)).collect();
     let mut shfi = SHFILEINFOW::default();
@@ -229,11 +318,12 @@ unsafe fn extract_icon_from_exe(exe_path: &str) -> Option<String> {
         return None;
     }
 
-    hicon_to_data_url(shfi.hIcon, true)
+    hicon_to_png_data_url(shfi.hIcon, true)
 }
 
-/// Converts an HICON to a base64 BMP data URL.
-unsafe fn hicon_to_data_url(hicon: HICON, should_destroy: bool) -> Option<String> {
+/// Converts an HICON to a high-quality 32-bit RGBA PNG data URL.
+/// Solves section 2.5: crisp alpha channel with zero black background artifacts.
+unsafe fn hicon_to_png_data_url(hicon: HICON, should_destroy: bool) -> Option<String> {
     let mut icon_info = ICONINFO::default();
     if GetIconInfo(hicon, &mut icon_info).is_err() {
         if should_destroy {
@@ -270,16 +360,26 @@ unsafe fn hicon_to_data_url(hicon: HICON, should_destroy: bool) -> Option<String
         return None;
     }
 
-    let width = bmp.bmWidth;
-    let height = bmp.bmHeight;
-    let image_size = (width * height * 4) as usize;
+    let width = bmp.bmWidth as u32;
+    let height = bmp.bmHeight as u32;
+    if width == 0 || height == 0 {
+        if should_destroy {
+            let _ = DestroyIcon(hicon);
+        }
+        let _ = DeleteObject(icon_info.hbmColor);
+        if !icon_info.hbmMask.0.is_null() {
+            let _ = DeleteObject(icon_info.hbmMask);
+        }
+        return None;
+    }
 
+    let image_size = (width * height * 4) as usize;
     let hdc = CreateCompatibleDC(HDC(std::ptr::null_mut()));
     let mut bmi = BITMAPINFO {
         bmiHeader: BITMAPINFOHEADER {
             biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-            biWidth: width,
-            biHeight: -height, // negative for top-down DIB
+            biWidth: width as i32,
+            biHeight: -(height as i32), // top-down
             biPlanes: 1,
             biBitCount: 32,
             biCompression: BI_RGB.0,
@@ -292,13 +392,13 @@ unsafe fn hicon_to_data_url(hicon: HICON, should_destroy: bool) -> Option<String
         ..Default::default()
     };
 
-    let mut pixels = vec![0u8; image_size];
+    let mut bgra_pixels = vec![0u8; image_size];
     let lines = GetDIBits(
         hdc,
         hbm_color,
         0,
-        height as u32,
-        Some(pixels.as_mut_ptr() as *mut _),
+        height,
+        Some(bgra_pixels.as_mut_ptr() as *mut _),
         &mut bmi,
         DIB_RGB_COLORS,
     );
@@ -316,38 +416,44 @@ unsafe fn hicon_to_data_url(hicon: HICON, should_destroy: bool) -> Option<String
         return None;
     }
 
-    // Construct 32-bit BMP in memory
-    let file_header_size = 14usize;
-    let info_header_size = 40usize;
-    let total_file_size = file_header_size + info_header_size + image_size;
+    // Convert BGRA to RGBA with alpha channel detection
+    let mut has_non_zero_alpha = false;
+    for chunk in bgra_pixels.chunks(4) {
+        if chunk[3] > 0 {
+            has_non_zero_alpha = true;
+            break;
+        }
+    }
 
-    let mut bmp_bytes = Vec::with_capacity(total_file_size);
+    let mut rgba_img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width, height);
+    for y in 0..height {
+        for x in 0..width {
+            let idx = ((y * width + x) * 4) as usize;
+            let b = bgra_pixels[idx];
+            let g = bgra_pixels[idx + 1];
+            let r = bgra_pixels[idx + 2];
+            let a = if has_non_zero_alpha {
+                bgra_pixels[idx + 3]
+            } else {
+                // If the icon bitmap didn't specify an alpha channel, treat solid pixels as 255
+                if r == 0 && g == 0 && b == 0 {
+                    0
+                } else {
+                    255
+                }
+            };
+            rgba_img.put_pixel(x, y, Rgba([r, g, b, a]));
+        }
+    }
 
-    // BITMAPFILEHEADER (14 bytes)
-    bmp_bytes.extend_from_slice(b"BM");
-    bmp_bytes.extend_from_slice(&(total_file_size as u32).to_le_bytes());
-    bmp_bytes.extend_from_slice(&0u16.to_le_bytes()); // bfReserved1
-    bmp_bytes.extend_from_slice(&0u16.to_le_bytes()); // bfReserved2
-    bmp_bytes.extend_from_slice(&((file_header_size + info_header_size) as u32).to_le_bytes()); // bfOffBits
+    // Encode to in-memory PNG
+    let mut png_bytes = Cursor::new(Vec::new());
+    if rgba_img.write_to(&mut png_bytes, ImageFormat::Png).is_err() {
+        return None;
+    }
 
-    // BITMAPINFOHEADER (40 bytes)
-    bmp_bytes.extend_from_slice(&(info_header_size as u32).to_le_bytes());
-    bmp_bytes.extend_from_slice(&(width as i32).to_le_bytes());
-    bmp_bytes.extend_from_slice(&(-(height as i32)).to_le_bytes());
-    bmp_bytes.extend_from_slice(&1u16.to_le_bytes()); // biPlanes
-    bmp_bytes.extend_from_slice(&32u16.to_le_bytes()); // biBitCount
-    bmp_bytes.extend_from_slice(&0u32.to_le_bytes()); // BI_RGB
-    bmp_bytes.extend_from_slice(&(image_size as u32).to_le_bytes());
-    bmp_bytes.extend_from_slice(&0u32.to_le_bytes());
-    bmp_bytes.extend_from_slice(&0u32.to_le_bytes());
-    bmp_bytes.extend_from_slice(&0u32.to_le_bytes());
-    bmp_bytes.extend_from_slice(&0u32.to_le_bytes());
-
-    // Pixel data
-    bmp_bytes.extend_from_slice(&pixels);
-
-    let b64 = base64_encode(&bmp_bytes);
-    Some(format!("data:image/bmp;base64,{b64}"))
+    let b64 = base64_encode(png_bytes.get_ref());
+    Some(format!("data:image/png;base64,{b64}"))
 }
 
 fn base64_encode(data: &[u8]) -> String {
@@ -375,11 +481,20 @@ fn base64_encode(data: &[u8]) -> String {
 
 use tauri::Emitter;
 
-static mut GLOBAL_TRACKER: Option<(tauri::AppHandle, Arc<AppTracker>)> = None;
+struct TrackerState {
+    handle: tauri::AppHandle,
+    tracker: Arc<AppTracker>,
+}
+
+static TRACKER_STATE: Mutex<Option<TrackerState>> = Mutex::new(None);
 
 pub fn start_tracking(handle: tauri::AppHandle, tracker: Arc<AppTracker>) {
-    unsafe {
-        GLOBAL_TRACKER = Some((handle, tracker));
+    {
+        let mut state = TRACKER_STATE.lock().unwrap();
+        *state = Some(TrackerState {
+            handle,
+            tracker,
+        });
     }
 
     std::thread::spawn(|| {
@@ -420,9 +535,18 @@ unsafe extern "system" fn win_event_hook_callback(
     _dwms_event_time: u32,
 ) {
     if event == EVENT_SYSTEM_FOREGROUND && !hwnd.0.is_null() {
-        if let Some((handle, tracker)) = &GLOBAL_TRACKER {
-            let app_info = tracker.get_current_app();
-            let _ = handle.emit("foreground_app_changed", &app_info);
+        if let Ok(lock) = TRACKER_STATE.try_lock() {
+            if let Some(state) = lock.as_ref() {
+                let tracker = state.tracker.clone();
+                let handle = state.handle.clone();
+                let hwnd_val = hwnd.0 as usize;
+                // Spawn lightweight background task so hook callback is non-blocking
+                std::thread::spawn(move || {
+                    let hwnd = HWND(hwnd_val as *mut _);
+                    let app_info = tracker.resolve_app_for_hwnd(hwnd);
+                    let _ = handle.emit("foreground_app_changed", &app_info);
+                });
+            }
         }
     }
 }

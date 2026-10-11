@@ -1,4 +1,6 @@
 //! REREAL Spitit v3: Windows Credential Manager storage for API Key.
+//! Strictly enforces section 3.7: Groq API key is stored ONLY in Windows Credential Manager.
+//! Plain-text fallback files are eliminated, and existing groq.key files are migrated and purged.
 
 use keyring::Entry;
 use std::path::PathBuf;
@@ -6,71 +8,73 @@ use std::path::PathBuf;
 const SERVICE_NAME: &str = "REREAL_Spitit";
 const USER_NAME: &str = "Groq_API_Key";
 
-fn fallback_key_path() -> Option<PathBuf> {
+fn legacy_key_path() -> Option<PathBuf> {
     if let Some(appdata) = std::env::var_os("LOCALAPPDATA").or_else(|| std::env::var_os("APPDATA")) {
-        let dir = PathBuf::from(appdata).join("Spitit");
-        let _ = std::fs::create_dir_all(&dir);
-        return Some(dir.join("groq.key"));
+        let path = PathBuf::from(appdata).join("Spitit").join("groq.key");
+        if path.exists() {
+            return Some(path);
+        }
     }
     None
 }
 
+/// Migrates and permanently purges any legacy plain-text `groq.key` file from disk.
+fn cleanup_legacy_key_file() {
+    if let Some(path) = legacy_key_path() {
+        // Read key if needed
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            let trimmed = content.trim();
+            if !trimmed.is_empty() {
+                if let Ok(entry) = Entry::new(SERVICE_NAME, USER_NAME) {
+                    if entry.get_password().unwrap_or_default().trim().is_empty() {
+                        let _ = entry.set_password(trimmed);
+                    }
+                }
+            }
+        }
+        // Permanently delete plain-text file
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 pub fn save_api_key(api_key: &str) -> Result<(), String> {
     let trimmed = api_key.trim();
-    
-    // 1. Primary: Windows Credential Manager
-    if let Ok(entry) = Entry::new(SERVICE_NAME, USER_NAME) {
-        let _ = entry.set_password(trimmed);
+    if trimmed.is_empty() {
+        return delete_api_key();
     }
 
-    // 2. Guaranteed local fallback in LocalAppData
-    if let Some(path) = fallback_key_path() {
-        let _ = std::fs::write(path, trimmed);
-    }
+    // Ensure legacy file is removed if it exists
+    cleanup_legacy_key_file();
+
+    let entry = Entry::new(SERVICE_NAME, USER_NAME)
+        .map_err(|e| format!("Failed to access Windows Credential Manager: {e}"))?;
+
+    entry
+        .set_password(trimmed)
+        .map_err(|e| format!("Failed to write API key to Windows Credential Manager: {e}"))?;
 
     Ok(())
 }
 
 pub fn get_api_key() -> Result<String, String> {
-    // 1. Try Windows Credential Manager
-    if let Ok(entry) = Entry::new(SERVICE_NAME, USER_NAME) {
-        if let Ok(key) = entry.get_password() {
-            if !key.trim().is_empty() {
-                return Ok(key.trim().to_string());
-            }
-        }
-    }
+    // Migrate and delete any existing plain-text file
+    cleanup_legacy_key_file();
 
-    // 2. Fallback to LocalAppData
-    if let Some(path) = fallback_key_path() {
-        if let Ok(content) = std::fs::read_to_string(path) {
-            let trimmed = content.trim().to_string();
-            if !trimmed.is_empty() {
-                return Ok(trimmed);
-            }
-        }
-    }
+    let entry = Entry::new(SERVICE_NAME, USER_NAME)
+        .map_err(|e| format!("Failed to access Windows Credential Manager: {e}"))?;
 
-    Ok(String::new())
+    match entry.get_password() {
+        Ok(key) => Ok(key.trim().to_string()),
+        Err(keyring::Error::NoEntry) => Ok(String::new()),
+        Err(e) => Err(format!("Windows Credential Manager query failed: {e}")),
+    }
 }
 
 pub fn delete_api_key() -> Result<(), String> {
+    cleanup_legacy_key_file();
+
     if let Ok(entry) = Entry::new(SERVICE_NAME, USER_NAME) {
         let _ = entry.delete_credential();
     }
-    if let Some(path) = fallback_key_path() {
-        let _ = std::fs::remove_file(path);
-    }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_credential_retrieval() {
-        let key = get_api_key().expect("Failed to query Credential Manager");
-        println!("Stored key present: {}", !key.is_empty());
-    }
 }

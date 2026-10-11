@@ -1468,3 +1468,170 @@ body, html {
   flex-shrink: 0;
 }
 
+/* Onboarding Wizard Modal */
+.win-onboarding-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 10, 14, 0.88);
+  backdrop-filter: blur(16px);
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.win-onboarding-modal {
+  width: 100%;
+  max-width: 580px;
+  background: #15151a;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.win-onboarding-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 24px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.win-onboarding-steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.win-step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  transition: all 200ms ease;
+}
+
+.win-step-dot.active {
+  background: var(--win-accent);
+  width: 20px;
+  border-radius: 999px;
+}
+
+.win-step-dot.completed {
+  background: var(--win-success);
+}
+
+.win-onboarding-body {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 280px;
+}
+
+.win-onboarding-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+/* Hotkey Three-Tier Validation Badges */
+.win-validation-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+.win-validation-box.ok {
+  background: rgba(52, 199, 89, 0.12);
+  border: 1px solid rgba(52, 199, 89, 0.3);
+  color: #34c759;
+}
+
+.win-validation-box.warning {
+  background: rgba(255, 159, 10, 0.12);
+  border: 1px solid rgba(255, 159, 10, 0.3);
+  color: #ff9f0a;
+}
+
+.win-validation-box.blocked {
+  background: rgba(255, 69, 58, 0.12);
+  border: 1px solid rgba(255, 69, 58, 0.3);
+  color: #ff453a;
+}
+
+/* Mic Live Test Level Meter */
+.win-mic-test-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.win-meter-bg {
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  position: relative;
+}
+
+.win-meter-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(to right, #34c759, #FFD505, #ff453a);
+  transition: width 50ms ease-out;
+}
+
+/* Audio Usage Progress Meter */
+.win-usage-card {
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  margin-top: 14px;
+}
+
+.win-usage-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+/* Honest Empty Dashboard State */
+.win-dashboard-empty {
+  padding: 32px 20px;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  margin: 16px 0;
+}
+
+.win-dashboard-empty h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffffff;
+  margin-bottom: 6px;
+}
+
+.win-dashboard-empty p {
+  font-size: 12.5px;
+  color: var(--win-text-secondary);
+  max-width: 420px;
+  margin: 0 auto;
+}
+

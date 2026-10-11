@@ -1,16 +1,20 @@
 //! REREAL Spitit v3: Tauri Application Core & IPC Handlers.
+//! Decoupled architecture with single source of truth, thread-safe audio streaming,
+//! SQLite persistent storage, honest error handling, and multi-monitor DPI scaling.
 
 mod app_tracker;
 mod credentials;
+mod db;
 mod hotkey;
 mod paster;
 mod recorder;
 mod settings;
 mod transcriber;
 
-use app_tracker::AppTracker;
-use hotkey::{ActivationMode, HotkeyCombo, HotkeyEvent, HotkeyManager};
-use recorder::AudioRecorder;
+use app_tracker::{AppInfo, AppTracker};
+use db::{DashboardStats, DbManager, HistoryRecord};
+use hotkey::{ActivationMode, EngineState, HotkeyEvent, HotkeyManager, ValidationResult};
+use recorder::{list_input_devices, AudioDeviceInfo, AudioRecorder};
 use serde::Serialize;
 use settings::UserSettings;
 use std::sync::{Arc, Mutex};
@@ -20,9 +24,22 @@ use tauri::{
     Emitter, Manager, Wry,
 };
 use windows::core::PCWSTR;
+use windows::Win32::Foundation::HWND;
+use windows::Win32::Graphics::Gdi::{
+    GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
+};
 use windows::Win32::System::Registry::{
     RegCloseKey, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW,
-    HKEY_CURRENT_USER, KEY_READ, KEY_WRITE, REG_SZ,
+    HKEY_CURRENT_USER, KEY_READ, KEY_WRITE, REG_DWORD, REG_SZ,
+};
+use windows::Win32::UI::HiDpi::GetDpiForWindow;
+use windows::Win32::UI::Shell::ShellExecuteW;
+use windows::Win32::UI::WindowsAndMessaging::{
+    BringWindowToTop, GetSystemMetrics, GetWindowLongW, SetForegroundWindow,
+    SetWindowLongW, SetWindowPos, ShowWindow, GWL_EXSTYLE, GWL_STYLE, HWND_TOPMOST,
+    SM_CXSCREEN, SM_CYSCREEN, SWP_FRAMECHANGED, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE,
+    SWP_NOSIZE, SW_RESTORE, SW_SHOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX,
+    WS_THICKFRAME,
 };
 
 #[derive(Serialize, Clone)]
@@ -36,13 +53,15 @@ pub struct TranscriptMeta {
 }
 
 struct AppState {
-    recorder: Mutex<AudioRecorder>,
-    hotkey_mgr: HotkeyManager,
+    recorder: Arc<AudioRecorder>,
+    hotkey_mgr: Arc<HotkeyManager>,
     language: Mutex<String>,
-    app_tracker: Arc<AppTracker>,
+    _app_tracker: Arc<AppTracker>,
     api_key: Mutex<String>,
     settings: Mutex<UserSettings>,
+    db: Arc<DbManager>,
     tray_lang_items: Mutex<Option<(CheckMenuItem<Wry>, CheckMenuItem<Wry>)>>,
+    captured_app: Mutex<Option<AppInfo>>,
 }
 
 pub fn bring_main_window_to_front(app: &tauri::AppHandle) {
@@ -56,17 +75,115 @@ pub fn bring_main_window_to_front(app: &tauri::AppHandle) {
         let _ = win.center();
         if let Ok(hwnd_val) = win.hwnd() {
             unsafe {
-                use windows::Win32::UI::WindowsAndMessaging::{
-                    BringWindowToTop, SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW,
-                };
-                let hwnd = windows::Win32::Foundation::HWND(hwnd_val.0 as _);
+                let hwnd = HWND(hwnd_val.0 as _);
                 let _ = ShowWindow(hwnd, SW_RESTORE);
                 let _ = ShowWindow(hwnd, SW_SHOW);
                 let _ = SetForegroundWindow(hwnd);
                 let _ = BringWindowToTop(hwnd);
             }
         }
+    } else {
+        // Created on demand per spec section 3 & rule 8 to minimize idle RAM
+        if let Ok(win) = tauri::WebviewWindowBuilder::new(
+            app,
+            "main",
+            tauri::WebviewUrl::App("index.html".into()),
+        )
+        .title("Spitit")
+        .inner_size(880.0, 600.0)
+        .min_inner_size(720.0, 520.0)
+        .center()
+        .decorations(false)
+        .transparent(false)
+        .build()
+        {
+            if let Some(icon) = app.default_window_icon() {
+                let _ = win.set_icon(icon.clone());
+            }
+            let _ = win.show();
+            let _ = win.set_focus();
+        }
     }
+}
+
+pub fn configure_pill_window(pill_win: &tauri::WebviewWindow) {
+    if let Ok(raw_hwnd) = pill_win.hwnd() {
+        let hwnd = HWND(raw_hwnd.0 as _);
+        unsafe {
+            // 1. Strip WS_MAXIMIZEBOX and WS_THICKFRAME to prevent maximizing on double-click
+            let style = GetWindowLongW(hwnd, GWL_STYLE);
+            SetWindowLongW(
+                hwnd,
+                GWL_STYLE,
+                style & !(WS_MAXIMIZEBOX.0 as i32) & !(WS_THICKFRAME.0 as i32),
+            );
+
+            // 2. Set WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW so pill never steals focus
+            let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+            SetWindowLongW(
+                hwnd,
+                GWL_EXSTYLE,
+                ex_style
+                    | (WS_EX_NOACTIVATE.0 as i32)
+                    | (WS_EX_TOOLWINDOW.0 as i32),
+            );
+
+            let _ = SetWindowPos(
+                hwnd,
+                HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+            );
+
+            // 3. Position pill on active monitor with proper DPI scaling
+            position_pill_on_monitor(hwnd);
+        }
+    }
+}
+
+pub unsafe fn position_pill_on_monitor(hwnd: HWND) {
+    let hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY);
+    let mut mi = MONITORINFO {
+        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+
+    let (screen_w, screen_h, base_x, base_y) = if GetMonitorInfoW(hmon, &mut mi).as_bool() {
+        (
+            mi.rcWork.right - mi.rcWork.left,
+            mi.rcWork.bottom - mi.rcWork.top,
+            mi.rcWork.left,
+            mi.rcWork.top,
+        )
+    } else {
+        (
+            GetSystemMetrics(SM_CXSCREEN),
+            GetSystemMetrics(SM_CYSCREEN),
+            0,
+            0,
+        )
+    };
+
+    let dpi = GetDpiForWindow(hwnd);
+    let scale = if dpi > 0 { dpi as f32 / 96.0 } else { 1.0 };
+
+    let pill_w = (160.0 * scale) as i32;
+    let pill_h = (38.0 * scale) as i32;
+    let x = base_x + (screen_w - pill_w) / 2;
+    let y = base_y + screen_h - pill_h - (24.0 * scale) as i32;
+
+    let _ = SetWindowPos(
+        hwnd,
+        HWND_TOPMOST,
+        x,
+        y,
+        pill_w,
+        pill_h,
+        SWP_NOACTIVATE | SWP_HIDEWINDOW,
+    );
 }
 
 #[tauri::command]
@@ -92,8 +209,20 @@ fn toggle_maximize_window(app: tauri::AppHandle) {
 #[tauri::command]
 fn close_window(app: tauri::AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
-        let _ = win.hide();
+        let _ = win.destroy();
     }
+}
+
+#[tauri::command]
+fn reset_pill_position(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(pill_win) = app.get_webview_window("pill") {
+        if let Ok(raw_hwnd) = pill_win.hwnd() {
+            unsafe {
+                position_pill_on_monitor(HWND(raw_hwnd.0 as _));
+            }
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -127,24 +256,25 @@ fn get_all_settings(state: tauri::State<AppState>) -> UserSettings {
 }
 
 #[tauri::command]
-fn save_all_settings(state: tauri::State<AppState>, app: tauri::AppHandle, new_settings: UserSettings) -> Result<(), String> {
+fn save_all_settings(
+    state: tauri::State<AppState>,
+    app: tauri::AppHandle,
+    new_settings: UserSettings,
+) -> Result<(), String> {
     let mode = match new_settings.mode.to_lowercase().as_str() {
         "toggle" => ActivationMode::Toggle,
         _ => ActivationMode::Hold,
     };
     state.hotkey_mgr.set_mode(mode);
-
-    let combo = match new_settings.hotkey_combo.to_lowercase().as_str() {
-        "ctrl_space" => HotkeyCombo::CtrlSpace,
-        "alt_space" => HotkeyCombo::AltSpace,
-        "ctrl_shift" => HotkeyCombo::CtrlShift,
-        "right_alt" => HotkeyCombo::RightAlt,
-        _ => HotkeyCombo::AltShift,
-    };
-    state.hotkey_mgr.set_combo(combo);
+    state.hotkey_mgr.update_combos(
+        &new_settings.hold_hotkey,
+        &new_settings.toggle_hotkey,
+        new_settings.minimum_hold_time_ms,
+    );
 
     *state.language.lock().unwrap() = new_settings.language.clone();
     *state.settings.lock().unwrap() = new_settings.clone();
+
     let _ = app.emit("language_changed", &new_settings.language);
     let tray_items = state.tray_lang_items.lock().unwrap().clone();
     if let Some((en_item, hi_item)) = tray_items {
@@ -156,81 +286,70 @@ fn save_all_settings(state: tauri::State<AppState>, app: tauri::AppHandle, new_s
 }
 
 #[tauri::command]
-fn get_mode(state: tauri::State<AppState>) -> String {
-    match state.hotkey_mgr.get_mode() {
-        ActivationMode::Hold => "hold".to_string(),
-        ActivationMode::Toggle => "toggle".to_string(),
+fn validate_hotkey(combo: String, is_hold: bool, other_combo: String) -> ValidationResult {
+    hotkey::validate_hotkey_combo(&combo, is_hold, &other_combo)
+}
+
+#[tauri::command]
+fn list_mics() -> Vec<AudioDeviceInfo> {
+    list_input_devices()
+}
+
+#[tauri::command]
+fn is_clipboard_history_enabled() -> bool {
+    unsafe {
+        let subkey: Vec<u16> = "Software\\Microsoft\\Clipboard\0".encode_utf16().collect();
+        let name: Vec<u16> = "EnableClipboardHistory\0".encode_utf16().collect();
+        let mut hkey = windows::Win32::System::Registry::HKEY::default();
+        if RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            PCWSTR(subkey.as_ptr()),
+            0,
+            KEY_READ,
+            &mut hkey,
+        )
+        .is_ok()
+        {
+            let mut val_type = REG_DWORD;
+            let mut val: u32 = 0;
+            let mut val_len = 4u32;
+            let res = RegQueryValueExW(
+                hkey,
+                PCWSTR(name.as_ptr()),
+                None,
+                Some(&mut val_type),
+                Some(&mut val as *mut _ as *mut u8),
+                Some(&mut val_len),
+            );
+            let _ = RegCloseKey(hkey);
+            res.is_ok() && val == 1
+        } else {
+            false
+        }
     }
 }
 
 #[tauri::command]
-fn set_mode(state: tauri::State<AppState>, mode_str: String) -> Result<(), String> {
-    let mode = match mode_str.to_lowercase().as_str() {
-        "toggle" => ActivationMode::Toggle,
-        _ => ActivationMode::Hold,
-    };
-    state.hotkey_mgr.set_mode(mode);
-    let mut s = state.settings.lock().unwrap();
-    s.mode = mode_str;
-    let _ = settings::save_settings(&s);
-    Ok(())
-}
-
-#[tauri::command]
-fn get_hotkey_combo(state: tauri::State<AppState>) -> String {
-    match state.hotkey_mgr.get_combo() {
-        HotkeyCombo::AltShift => "alt_shift".to_string(),
-        HotkeyCombo::CtrlSpace => "ctrl_space".to_string(),
-        HotkeyCombo::AltSpace => "alt_space".to_string(),
-        HotkeyCombo::CtrlShift => "ctrl_shift".to_string(),
-        HotkeyCombo::RightAlt => "right_alt".to_string(),
+fn open_windows_settings(uri: String) -> Result<(), String> {
+    unsafe {
+        let wide: Vec<u16> = uri.encode_utf16().chain(std::iter::once(0)).collect();
+        let open_verb: Vec<u16> = "open\0".encode_utf16().collect();
+        let res = ShellExecuteW(
+            HWND(std::ptr::null_mut()),
+            PCWSTR(open_verb.as_ptr()),
+            PCWSTR(wide.as_ptr()),
+            PCWSTR(std::ptr::null()),
+            PCWSTR(std::ptr::null()),
+            SW_SHOW,
+        );
+        if res.0 as usize > 32 {
+            Ok(())
+        } else {
+            Err("Failed to open Windows Settings page".into())
+        }
     }
 }
 
-#[tauri::command]
-fn set_hotkey_combo(state: tauri::State<AppState>, combo_str: String) -> Result<(), String> {
-    let combo = match combo_str.to_lowercase().as_str() {
-        "ctrl_space" => HotkeyCombo::CtrlSpace,
-        "alt_space" => HotkeyCombo::AltSpace,
-        "ctrl_shift" => HotkeyCombo::CtrlShift,
-        "right_alt" => HotkeyCombo::RightAlt,
-        _ => HotkeyCombo::AltShift,
-    };
-    state.hotkey_mgr.set_combo(combo);
-    let mut s = state.settings.lock().unwrap();
-    s.hotkey_combo = combo_str;
-    let _ = settings::save_settings(&s);
-    Ok(())
-}
-
-#[tauri::command]
-fn get_language(state: tauri::State<AppState>) -> String {
-    state.language.lock().unwrap().clone()
-}
-
-#[tauri::command]
-fn set_language(state: tauri::State<AppState>, app: tauri::AppHandle, lang: String) -> Result<(), String> {
-    *state.language.lock().unwrap() = lang.clone();
-    let mut s = state.settings.lock().unwrap();
-    s.language = lang.clone();
-    let _ = settings::save_settings(&s);
-    let _ = app.emit("language_changed", &lang);
-    let tray_items = state.tray_lang_items.lock().unwrap().clone();
-    if let Some((en_item, hi_item)) = tray_items {
-        let is_en = lang != "hinglish";
-        let _ = en_item.set_checked(is_en);
-        let _ = hi_item.set_checked(!is_en);
-    }
-    Ok(())
-}
-
-#[tauri::command]
-fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
-    bring_main_window_to_front(&app);
-    Ok(())
-}
-
-/// Instant Win32 Registry check: zero sub-processes, 0 flashing windows, completely silent.
 #[tauri::command]
 fn is_autostart_enabled() -> bool {
     unsafe {
@@ -246,7 +365,6 @@ fn is_autostart_enabled() -> bool {
             KEY_READ,
             &mut hkey,
         )
-        .ok()
         .is_ok()
         {
             let res = RegQueryValueExW(
@@ -258,14 +376,13 @@ fn is_autostart_enabled() -> bool {
                 None,
             );
             let _ = RegCloseKey(hkey);
-            res.ok().is_ok()
+            res.is_ok()
         } else {
             false
         }
     }
 }
 
-/// Instant Win32 Registry configuration: zero PowerShell processes, 0 lag.
 #[tauri::command]
 fn set_autostart_enabled(enabled: bool) -> Result<(), String> {
     unsafe {
@@ -287,7 +404,8 @@ fn set_autostart_enabled(enabled: bool) -> Result<(), String> {
 
         let res = if enabled {
             let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
-            let val = format!("\"{}\"", current_exe.to_string_lossy());
+            // Pass --autostart flag so launch starts silently in system tray without splash
+            let val = format!("\"{}\" --autostart", current_exe.to_string_lossy());
             let val_w: Vec<u16> = val.encode_utf16().chain(std::iter::once(0)).collect();
             let bytes = std::slice::from_raw_parts(val_w.as_ptr() as *const u8, val_w.len() * 2);
             RegSetValueExW(
@@ -305,76 +423,30 @@ fn set_autostart_enabled(enabled: bool) -> Result<(), String> {
     }
 }
 
+// Database IPC commands
 #[tauri::command]
-fn start_manual_record(state: tauri::State<AppState>, app: tauri::AppHandle) -> Result<(), String> {
-    let app_info = state.app_tracker.get_current_app();
-    let _ = app.emit("foreground_app_changed", &app_info);
-    let _ = app.emit("recording_state", "recording");
-
-    if let Some(pill_win) = app.get_webview_window("pill") {
-        let _ = pill_win.show();
-    }
-
-    let mut rec = state.recorder.lock().unwrap();
-    rec.start()
+fn get_history(state: tauri::State<AppState>, search: Option<String>, limit: Option<usize>) -> Result<Vec<HistoryRecord>, String> {
+    state.db.get_history(search.as_deref(), limit.unwrap_or(100))
 }
 
 #[tauri::command]
-async fn stop_manual_record(
-    state: tauri::State<'_, AppState>,
-    app: tauri::AppHandle,
-) -> Result<String, String> {
-    let _ = app.emit("recording_state", "processing");
-    let wav_opt = {
-        let mut rec = state.recorder.lock().unwrap();
-        rec.stop()?
-    };
+fn delete_history_item(state: tauri::State<AppState>, id: i64) -> Result<(), String> {
+    state.db.delete_history_item(id)
+}
 
-    let wav_bytes = match wav_opt {
-        Some(b) => b,
-        None => {
-            let _ = app.emit("recording_state", "cancelled");
-            return Ok("Audio too short".into());
-        }
-    };
+#[tauri::command]
+fn clear_history(state: tauri::State<AppState>) -> Result<(), String> {
+    state.db.clear_history()
+}
 
-    let api_key = {
-        let k = state.api_key.lock().unwrap().clone();
-        if !k.is_empty() {
-            k
-        } else {
-            credentials::get_api_key().unwrap_or_default()
-        }
-    };
+#[tauri::command]
+fn get_dashboard_stats(state: tauri::State<AppState>) -> Result<DashboardStats, String> {
+    state.db.get_dashboard_stats()
+}
 
-    if api_key.is_empty() {
-        let _ = app.emit("recording_state", "no_api_key");
-        return Err("No API key configured. Please enter your Groq API key in Settings.".into());
-    }
-
-    let lang = state.language.lock().unwrap().clone();
-    let text = transcriber::transcribe(wav_bytes, &api_key, &lang).await?;
-    let _ = paster::paste_text(&text);
-
-    let duration = state.recorder.lock().unwrap().get_last_duration();
-    let word_count = text.split_whitespace().count();
-    let wpm = if duration >= 0.5 {
-        ((word_count as f32 / duration) * 60.0).round() as u32
-    } else {
-        0
-    };
-    let app_info = state.app_tracker.get_current_app();
-    let meta = TranscriptMeta {
-        text: text.clone(),
-        word_count,
-        duration_secs: duration,
-        wpm,
-        app_name: app_info.name,
-        app_icon: app_info.icon_data_url,
-    };
-    let _ = app.emit("transcript_meta", &meta);
-    let _ = app.emit("transcript_done", &text);
-    Ok(text)
+#[tauri::command]
+fn reset_stats(state: tauri::State<AppState>) -> Result<(), String> {
+    state.db.reset_stats()
 }
 
 #[tauri::command]
@@ -387,124 +459,115 @@ fn hide_pill_window(app: tauri::AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn cancel_recording(state: tauri::State<AppState>, app: tauri::AppHandle) -> Result<(), String> {
-    {
-        let mut rec = state.recorder.lock().unwrap();
-        rec.cancel();
-    }
+    state.recorder.cancel();
+    state.hotkey_mgr.set_engine_state(EngineState::Idle);
     let _ = app.emit("recording_state", "cancelled");
     hide_pill_window(app)
 }
 
 #[tauri::command]
-fn save_pill_screenshot(data_url: String) -> Result<String, String> {
-    use std::fs;
-    let parts: Vec<&str> = data_url.split(',').collect();
-    if parts.len() != 2 {
-        return Err("Invalid data URL".into());
-    }
-    let base64_str = parts[1];
-    let bytes = base64_decode(base64_str)?;
-
-    let appdata = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| "C:\\temp".into());
-    let path = format!("{}\\Spitit\\real_tauri_pill.png", appdata);
-    let _ = fs::create_dir_all(format!("{}\\Spitit", appdata));
-    fs::write(&path, bytes).map_err(|e| e.to_string())?;
-
-    Ok(path)
-}
-
-fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut clean = input.replace(&['\r', '\n', ' '][..], "");
-    while clean.len() % 4 != 0 {
-        clean.push('=');
-    }
-    let mut out = Vec::with_capacity(clean.len() * 3 / 4);
-    let bytes = clean.as_bytes();
-
-    let mut i = 0;
-    while i < bytes.len() {
-        let mut buf = 0u32;
-        let mut count = 0;
-        for j in 0..4 {
-            let b = bytes[i + j];
-            if b == b'=' {
-                break;
-            }
-            if let Some(pos) = TABLE.iter().position(|&x| x == b) {
-                buf = (buf << 6) | (pos as u32);
-                count += 1;
-            }
-        }
-        if count >= 2 {
-            out.push((buf >> (16 - (4 - count) * 6)) as u8);
-        }
-        if count >= 3 {
-            out.push(((buf >> 8) & 0xFF) as u8);
-        }
-        if count == 4 {
-            out.push((buf & 0xFF) as u8);
-        }
-        i += 4;
-    }
-    Ok(out)
+fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
+    bring_main_window_to_front(&app);
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let args: Vec<String> = std::env::args().collect();
+    let is_autostart_launch = args.iter().any(|a| a == "--autostart");
+
     let initial_settings = settings::load_settings();
 
-    let combo = match initial_settings.hotkey_combo.as_str() {
-        "ctrl_space" => HotkeyCombo::CtrlSpace,
-        "alt_space" => HotkeyCombo::AltSpace,
-        "ctrl_shift" => HotkeyCombo::CtrlShift,
-        "right_alt" => HotkeyCombo::RightAlt,
-        _ => HotkeyCombo::AltShift,
-    };
-
-    let mode = match initial_settings.mode.as_str() {
+    let initial_mode = match initial_settings.mode.as_str() {
         "toggle" => ActivationMode::Toggle,
         _ => ActivationMode::Hold,
     };
 
-    let (hotkey_mgr, rx) = HotkeyManager::new(mode, combo);
+    let (hotkey_mgr, rx) = HotkeyManager::new(
+        initial_mode,
+        &initial_settings.hold_hotkey,
+        &initial_settings.toggle_hotkey,
+        initial_settings.minimum_hold_time_ms,
+    );
+    let hotkey_mgr = Arc::new(hotkey_mgr);
     hotkey_mgr.start();
 
     let tracker = Arc::new(AppTracker::new());
     let init_key = credentials::get_api_key().unwrap_or_default();
+    let db = Arc::new(DbManager::init().expect("Failed to initialize SQLite database"));
+
+    // Audio callbacks
+    let app_handle_for_audio: Arc<Mutex<Option<tauri::AppHandle>>> = Arc::new(Mutex::new(None));
+
+    let handle_level = Arc::clone(&app_handle_for_audio);
+    let on_level = move |level: f32| {
+        if let Ok(lock) = handle_level.try_lock() {
+            if let Some(handle) = lock.as_ref() {
+                let _ = handle.emit("mic_level", level);
+            }
+        }
+    };
+
+    let handle_countdown = Arc::clone(&app_handle_for_audio);
+    let on_countdown = move |remaining: u32| {
+        if let Ok(lock) = handle_countdown.try_lock() {
+            if let Some(handle) = lock.as_ref() {
+                let _ = handle.emit("countdown_remaining", remaining);
+            }
+        }
+    };
+
+    let handle_autostop = Arc::clone(&app_handle_for_audio);
+    let hotkey_mgr_autostop = Arc::clone(&hotkey_mgr);
+    let on_autostop = move || {
+        hotkey_mgr_autostop.set_engine_state(EngineState::Processing);
+        if let Ok(lock) = handle_autostop.try_lock() {
+            if let Some(handle) = lock.as_ref() {
+                let _ = handle.emit("max_duration_reached", ());
+                let _ = handle.emit("recording_state", "processing");
+            }
+        }
+    };
+
+    let recorder = Arc::new(AudioRecorder::new(on_level, on_countdown, on_autostop));
 
     let app_state = AppState {
-        recorder: Mutex::new(AudioRecorder::new()),
-        hotkey_mgr,
+        recorder: Arc::clone(&recorder),
+        hotkey_mgr: Arc::clone(&hotkey_mgr),
         language: Mutex::new(initial_settings.language.clone()),
-        app_tracker: tracker.clone(),
+        _app_tracker: Arc::clone(&tracker),
         api_key: Mutex::new(init_key.clone()),
         settings: Mutex::new(initial_settings.clone()),
+        db: Arc::clone(&db),
         tray_lang_items: Mutex::new(None),
+        captured_app: Mutex::new(None),
     };
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            // When user opens Spitit from Windows Search / Start Menu while already running
+            // Second launch brings existing window to front
             bring_main_window_to_front(app);
         }))
         .manage(app_state)
         .setup(move |app| {
             let handle = app.handle().clone();
+            *app_handle_for_audio.lock().unwrap() = Some(handle.clone());
 
-            // Set explicit taskbar and window icon on the main window
+            // Set explicit taskbar and window icon
             if let Some(main_win) = app.get_webview_window("main") {
                 if let Some(icon) = app.default_window_icon() {
                     let _ = main_win.set_icon(icon.clone());
                 }
             }
 
-            // If API key is not configured, show main window on initial launch
-            if init_key.is_empty() {
+            // Show main window ONLY if:
+            // 1. Not launching silently via Windows startup (--autostart)
+            // 2. AND (API key is not configured OR onboarding is not completed)
+            if !is_autostart_launch && (init_key.is_empty() || !initial_settings.onboarding_completed) {
                 bring_main_window_to_front(&handle);
             }
 
-            // Setup System Tray with official icon and menu (including Language Quick Swap)
+            // Setup System Tray
             let open_i = MenuItem::with_id(&handle, "open", "Open Spitit", true, None::<&str>)?;
             let sep1 = PredefinedMenuItem::separator(&handle)?;
             let is_en = initial_settings.language != "hinglish";
@@ -532,7 +595,6 @@ pub fn run() {
                 &[&open_i, &sep1, &lang_en_i, &lang_hinglish_i, &sep2, &quit_i],
             )?;
 
-            // Save tray check items in AppState for two-way live sync with settings UI
             *app.state::<AppState>().tray_lang_items.lock().unwrap() =
                 Some((lang_en_i.clone(), lang_hinglish_i.clone()));
 
@@ -594,139 +656,186 @@ pub fn run() {
                 .build(app)?;
 
             // Start foreground active-app tracker
-            let tracker_for_hook = tracker.clone();
-            app_tracker::start_tracking(handle.clone(), tracker_for_hook);
+            app_tracker::start_tracking(handle.clone(), tracker.clone());
 
-            // Configure Pill window: tight Superwhisper style (160x38), frameless, transparent, WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW
+            // Configure Pill window
             if let Some(pill_win) = app.get_webview_window("pill") {
-                if let Ok(raw_hwnd) = pill_win.hwnd() {
-                    let hwnd = windows::Win32::Foundation::HWND(raw_hwnd.0 as _);
-                    unsafe {
-                        use windows::Win32::UI::WindowsAndMessaging::{
-                            GetSystemMetrics, GetWindowLongW, SetWindowLongW, SetWindowPos,
-                            GWL_EXSTYLE, HWND_TOPMOST, SM_CXSCREEN, SM_CYSCREEN, SWP_HIDEWINDOW,
-                            SWP_NOACTIVATE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-                        };
-
-                        let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
-                        SetWindowLongW(
-                            hwnd,
-                            GWL_EXSTYLE,
-                            ex_style
-                                | (WS_EX_NOACTIVATE.0 as i32)
-                                | (WS_EX_TOOLWINDOW.0 as i32),
-                        );
-
-                        let screen_w = GetSystemMetrics(SM_CXSCREEN);
-                        let screen_h = GetSystemMetrics(SM_CYSCREEN);
-                        let pill_w = 160;
-                        let pill_h = 38;
-                        let x = (screen_w - pill_w) / 2;
-                        let y = screen_h - 90;
-                        let _ = SetWindowPos(
-                            hwnd,
-                            HWND_TOPMOST,
-                            x,
-                            y,
-                            pill_w,
-                            pill_h,
-                            SWP_NOACTIVATE | SWP_HIDEWINDOW,
-                        );
-                    }
-                }
+                configure_pill_window(&pill_win);
             }
 
-            // Background worker thread for hotkey events
+            // Event-driven decoupled hotkey worker loop
             let handle_worker = handle.clone();
             let tracker_worker = tracker.clone();
 
             std::thread::spawn(move || {
-                tokio::runtime::Builder::new_multi_thread()
+                let rt = tokio::runtime::Builder::new_multi_thread()
                     .enable_all()
                     .build()
-                    .unwrap()
-                    .block_on(async move {
-                        while let Ok(event) = rx.recv() {
-                            let app_state = handle_worker.state::<AppState>();
-                            match event {
-                                HotkeyEvent::Start => {
-                                    // 1. Resolve and emit active app
-                                    let app_info = tracker_worker.get_current_app();
-                                    let _ = handle_worker.emit("foreground_app_changed", &app_info);
+                    .unwrap();
 
-                                    // 2. Show Pill window without stealing focus
-                                    if let Some(pill_win) = handle_worker.get_webview_window("pill") {
-                                        let _ = pill_win.show();
-                                    }
+                while let Ok(event) = rx.recv() {
+                    let app_state = handle_worker.state::<AppState>();
+                    match event {
+                        HotkeyEvent::StartCandidate => {
+                            // Section 4.5: Open microphone first before showing UI
+                            let mic_device = {
+                                let s = app_state.settings.lock().unwrap();
+                                s.microphone_device.clone()
+                            };
+                            let dev_opt = if mic_device == "System default" || mic_device.is_empty() {
+                                None
+                            } else {
+                                Some(mic_device)
+                            };
 
-                                    let _ = handle_worker.emit("recording_state", "recording");
-                                    let mut rec = app_state.recorder.lock().unwrap();
-                                    let _ = rec.start();
+                            let start_res = app_state.recorder.start(dev_opt);
+                            if let Err(e) = start_res {
+                                app_state.hotkey_mgr.set_engine_state(EngineState::Idle);
+                                let _ = handle_worker.emit("recording_state", format!("error:{e}"));
+                                if let Some(pill_win) = handle_worker.get_webview_window("pill") {
+                                    let _ = pill_win.show();
                                 }
-                                HotkeyEvent::Stop => {
-                                    let _ = handle_worker.emit("recording_state", "processing");
-                                    let wav_opt = {
-                                        let mut rec = app_state.recorder.lock().unwrap();
-                                        rec.stop().unwrap_or(None)
-                                    };
+                                continue;
+                            }
 
-                                    if let Some(wav_bytes) = wav_opt {
-                                        let key = {
-                                            let k = app_state.api_key.lock().unwrap().clone();
-                                            if !k.is_empty() {
-                                                k
-                                            } else {
-                                                credentials::get_api_key().unwrap_or_default()
-                                            }
-                                        };
-                                        let lang = app_state.language.lock().unwrap().clone();
-                                        if !key.is_empty() {
-                                            match transcriber::transcribe(wav_bytes, &key, &lang).await {
-                                                Ok(text) => {
-                                                    // Paste into active app without stealing focus
-                                                    let _ = paster::paste_text(&text);
+                            // Capture the active application AT HOTKEY PRESS (Section 2.5)
+                            let current_app = tracker_worker.get_current_app();
+                            *app_state.captured_app.lock().unwrap() = Some(current_app.clone());
+                            let _ = handle_worker.emit("foreground_app_changed", &current_app);
+                        }
 
-                                                    let duration = app_state.recorder.lock().unwrap().get_last_duration();
-                                                    let word_count = text.split_whitespace().count();
-                                                    let wpm = if duration >= 0.5 {
-                                                        ((word_count as f32 / duration) * 60.0).round() as u32
-                                                    } else {
-                                                        0
-                                                    };
-                                                    let app_info = tracker_worker.get_current_app();
-                                                    let meta = TranscriptMeta {
-                                                        text: text.clone(),
-                                                        word_count,
-                                                        duration_secs: duration,
-                                                        wpm,
-                                                        app_name: app_info.name,
-                                                        app_icon: app_info.icon_data_url,
-                                                    };
-                                                    let _ = handle_worker.emit("transcript_meta", &meta);
-                                                    let _ = handle_worker.emit("transcript_done", &text);
-                                                }
-                                                Err(e) => {
-                                                    let _ = handle_worker.emit("recording_state", format!("error:{}", e));
-                                                }
-                                            }
-                                        } else {
-                                            let _ = handle_worker.emit("recording_state", "no_api_key");
-                                        }
-                                    } else {
-                                        let _ = handle_worker.emit("recording_state", "cancelled");
-                                    }
+                        HotkeyEvent::StartConfirmed => {
+                            // Past tap threshold: show pill and emit recording
+                            if let Some(pill_win) = handle_worker.get_webview_window("pill") {
+                                let _ = pill_win.show();
+                            }
+                            let _ = handle_worker.emit("recording_state", "recording");
+                            let _ = handle_worker.emit("play_start_sound", ());
+                        }
+
+                        HotkeyEvent::TapIgnored => {
+                            // Accidental short tap: cancel audio, no pill shown, no API call
+                            app_state.recorder.cancel();
+                            app_state.hotkey_mgr.set_engine_state(EngineState::Idle);
+                        }
+
+                        HotkeyEvent::Stop => {
+                            let _ = handle_worker.emit("recording_state", "processing");
+
+                            let wav_opt = match app_state.recorder.stop() {
+                                Ok(opt) => opt,
+                                Err(err) => {
+                                    app_state.hotkey_mgr.set_engine_state(EngineState::Idle);
+                                    let _ = handle_worker.emit("recording_state", format!("error:{err}"));
+                                    continue;
                                 }
-                                HotkeyEvent::Cancel => {
-                                    let mut rec = app_state.recorder.lock().unwrap();
-                                    rec.cancel();
+                            };
+
+                            let wav_bytes = match wav_opt {
+                                Some(b) => b,
+                                None => {
+                                    // Too short or empty
+                                    app_state.hotkey_mgr.set_engine_state(EngineState::Idle);
                                     let _ = handle_worker.emit("recording_state", "cancelled");
-                                    if let Some(pill_win) = handle_worker.get_webview_window("pill") {
-                                        let _ = pill_win.hide();
+                                    continue;
+                                }
+                            };
+
+                            let key = {
+                                let k = app_state.api_key.lock().unwrap().clone();
+                                if !k.is_empty() {
+                                    k
+                                } else {
+                                    credentials::get_api_key().unwrap_or_default()
+                                }
+                            };
+
+                            if key.is_empty() {
+                                app_state.hotkey_mgr.set_engine_state(EngineState::Idle);
+                                let _ = handle_worker.emit("recording_state", "error:ERR_NO_API_KEY: Please configure your Groq API key.");
+                                continue;
+                            }
+
+                            let lang = app_state.language.lock().unwrap().clone();
+                            let captured_app = app_state
+                                .captured_app
+                                .lock()
+                                .unwrap()
+                                .clone()
+                                .unwrap_or_else(|| tracker_worker.get_current_app());
+
+                            let settings_clone = app_state.settings.lock().unwrap().clone();
+                            let handle_async = handle_worker.clone();
+                            let db_async = Arc::clone(&app_state.db);
+                            let hotkey_mgr_async = Arc::clone(&app_state.hotkey_mgr);
+                            let duration = app_state.recorder.get_last_duration();
+
+                            // Asynchronous transcription & paste task: hotkey event loop is NEVER blocked!
+                            rt.spawn(async move {
+                                match transcriber::transcribe(wav_bytes, &key, &lang).await {
+                                    Ok(text) => {
+                                        // 1. Paste into target window
+                                        let paste_res = paster::paste_text(
+                                            &text,
+                                            captured_app.hwnd,
+                                            settings_clone.auto_paste,
+                                        );
+
+                                        if let Err(e) = paste_res {
+                                            let _ = handle_async.emit("recording_state", format!("error:{e}"));
+                                        }
+
+                                        let word_count = text.split_whitespace().count();
+                                        let wpm = if duration >= 0.5 {
+                                            ((word_count as f32 / duration) * 60.0).round() as u32
+                                        } else {
+                                            0
+                                        };
+
+                                        // 2. Save to SQLite database
+                                        let _ = db_async.save_record(
+                                            &text,
+                                            word_count,
+                                            duration,
+                                            wpm,
+                                            &captured_app.name,
+                                            captured_app.icon_data_url.as_deref(),
+                                            &lang,
+                                            settings_clone.save_history,
+                                            settings_clone.keep_stats,
+                                        );
+
+                                        let meta = TranscriptMeta {
+                                            text: text.clone(),
+                                            word_count,
+                                            duration_secs: duration,
+                                            wpm,
+                                            app_name: captured_app.name,
+                                            app_icon: captured_app.icon_data_url,
+                                        };
+
+                                        let _ = handle_async.emit("transcript_meta", &meta);
+                                        let _ = handle_async.emit("transcript_done", &text);
+                                        let _ = handle_async.emit("play_done_sound", ());
+                                    }
+                                    Err(e) => {
+                                        let _ = handle_async.emit("recording_state", format!("error:{e}"));
                                     }
                                 }
+                                hotkey_mgr_async.set_engine_state(EngineState::Idle);
+                            });
+                        }
+
+                        HotkeyEvent::Cancel => {
+                            app_state.recorder.cancel();
+                            app_state.hotkey_mgr.set_engine_state(EngineState::Idle);
+                            let _ = handle_worker.emit("recording_state", "cancelled");
+                            if let Some(pill_win) = handle_worker.get_webview_window("pill") {
+                                let _ = pill_win.hide();
                             }
                         }
-                    });
+                    }
+                }
             });
 
             Ok(())
@@ -737,23 +846,24 @@ pub fn run() {
             test_api_key,
             get_all_settings,
             save_all_settings,
-            get_mode,
-            set_mode,
-            get_hotkey_combo,
-            set_hotkey_combo,
-            get_language,
-            set_language,
+            validate_hotkey,
+            list_mics,
+            is_clipboard_history_enabled,
+            open_windows_settings,
             is_autostart_enabled,
             set_autostart_enabled,
+            reset_pill_position,
             open_settings_window,
             minimize_window,
             toggle_maximize_window,
             close_window,
-            start_manual_record,
-            stop_manual_record,
             hide_pill_window,
             cancel_recording,
-            save_pill_screenshot,
+            get_history,
+            delete_history_item,
+            clear_history,
+            get_dashboard_stats,
+            reset_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
