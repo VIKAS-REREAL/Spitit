@@ -139,6 +139,66 @@ pub fn list_input_devices() -> Vec<AudioDeviceInfo> {
     list
 }
 
+pub fn check_windows_mic_privacy() -> Result<(), String> {
+    unsafe {
+        use windows::core::PCWSTR;
+        use windows::Win32::System::Registry::{
+            RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE,
+            KEY_READ,
+        };
+
+        let subkeys = [
+            "Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone\0",
+            "Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone\\NonPackaged\0",
+        ];
+
+        let val_name: Vec<u16> = "Value\0".encode_utf16().collect();
+
+        for (idx, subkey_str) in subkeys.iter().enumerate() {
+            let subkey_wide: Vec<u16> = subkey_str.encode_utf16().collect();
+            for root_hkey in [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE] {
+                let mut hkey = HKEY::default();
+                if RegOpenKeyExW(
+                    root_hkey,
+                    PCWSTR(subkey_wide.as_ptr()),
+                    0,
+                    KEY_READ,
+                    &mut hkey,
+                )
+                .is_ok()
+                {
+                    let mut buf = [0u16; 32];
+                    let mut buf_len = (buf.len() * 2) as u32;
+                    let res = RegQueryValueExW(
+                        hkey,
+                        PCWSTR(val_name.as_ptr()),
+                        None,
+                        None,
+                        Some(buf.as_mut_ptr() as *mut u8),
+                        Some(&mut buf_len),
+                    );
+                    let _ = RegCloseKey(hkey);
+
+                    if res.is_ok() {
+                        let len = (buf_len / 2) as usize;
+                        let val_str = String::from_utf16_lossy(&buf[..len])
+                            .trim_matches(char::from(0))
+                            .to_lowercase();
+                        if val_str.contains("deny") {
+                            if idx == 0 {
+                                return Err("ERR_MIC_PRIVACY_GLOBAL: Windows microphone access is turned off globally in Privacy Settings.".into());
+                            } else {
+                                return Err("ERR_MIC_PRIVACY_APPS: Desktop app microphone access is turned off in Windows Privacy Settings.".into());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn run_audio_worker<FLevel, FCountdown, FAutoStop>(
     cmd_rx: Receiver<AudioCommand>,
     is_rec_flag: Arc<AtomicBool>,
@@ -166,6 +226,11 @@ fn run_audio_worker<FLevel, FCountdown, FAutoStop>(
             Ok(AudioCommand::Start { device_name, reply }) => {
                 if is_rec_flag.load(Ordering::SeqCst) {
                     let _ = reply.send(Ok(()));
+                    continue;
+                }
+
+                if let Err(e) = check_windows_mic_privacy() {
+                    let _ = reply.send(Err(e));
                     continue;
                 }
 
@@ -300,7 +365,11 @@ fn run_audio_worker<FLevel, FCountdown, FAutoStop>(
                 };
 
                 if raw_samples.is_empty() {
-                    let _ = reply.send(Ok(None));
+                    if let Err(e) = check_windows_mic_privacy() {
+                        let _ = reply.send(Err(e));
+                    } else {
+                        let _ = reply.send(Err("ERR_NO_SPEECH: We couldn't hear you. Microphone input was silent or muted in Windows.".into()));
+                    }
                     continue;
                 }
 

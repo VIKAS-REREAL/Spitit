@@ -85,18 +85,15 @@ impl ParsedKeyCombo {
         for p in parts {
             let p_lower = p.to_lowercase();
             match p_lower.as_str() {
-                "alt" | "lmenu" => vks.push(VK_LMENU),
-                "left alt" => vks.push(VK_LMENU),
-                "right alt" | "ralt" | "altgr" | "rmenu" => vks.push(VK_RMENU),
-                "shift" | "lshift" => vks.push(VK_LSHIFT),
-                "left shift" => vks.push(VK_LSHIFT),
-                "right shift" | "rshift" => vks.push(VK_RSHIFT),
-                "ctrl" | "control" | "lctrl" | "lcontrol" => vks.push(VK_LCONTROL),
-                "left ctrl" | "left control" => vks.push(VK_LCONTROL),
-                "right ctrl" | "rctrl" | "rcontrol" => vks.push(VK_RCONTROL),
+                "alt" | "lmenu" | "left alt" | "leftalt" | "altleft" => vks.push(VK_LMENU),
+                "right alt" | "ralt" | "altgr" | "rmenu" | "altright" | "rightalt" => vks.push(VK_RMENU),
+                "shift" | "lshift" | "left shift" | "leftshift" | "shiftleft" => vks.push(VK_LSHIFT),
+                "right shift" | "rshift" | "rightshift" | "shiftright" => vks.push(VK_RSHIFT),
+                "ctrl" | "control" | "lctrl" | "lcontrol" | "left ctrl" | "left control" | "controlleft" => vks.push(VK_LCONTROL),
+                "right ctrl" | "rctrl" | "rcontrol" | "right control" | "controlright" => vks.push(VK_RCONTROL),
                 "win" | "windows" | "lwin" => vks.push(VK_LWIN),
                 "right win" | "rwin" => vks.push(VK_RWIN),
-                "space" => vks.push(VK_SPACE),
+                "space" | "spacebar" => vks.push(VK_SPACE),
                 "esc" | "escape" => vks.push(VK_ESCAPE),
                 "f1" => vks.push(0x70),
                 "f2" => vks.push(0x71),
@@ -146,16 +143,21 @@ impl ParsedKeyCombo {
             return false;
         }
         for &vk in &self.vks {
-            // Check generic equivalents
             let has_key = match vk {
-                VK_LMENU | VK_RMENU => {
-                    pressed.contains(&vk) || pressed.contains(&VK_MENU)
+                VK_LMENU => {
+                    pressed.contains(&VK_LMENU) || pressed.contains(&VK_MENU)
+                }
+                VK_RMENU => {
+                    pressed.contains(&VK_RMENU)
                 }
                 VK_LSHIFT | VK_RSHIFT => {
                     pressed.contains(&vk) || pressed.contains(&VK_SHIFT)
                 }
-                VK_LCONTROL | VK_RCONTROL => {
-                    pressed.contains(&vk) || pressed.contains(&VK_CONTROL)
+                VK_LCONTROL => {
+                    pressed.contains(&VK_LCONTROL) || pressed.contains(&VK_CONTROL)
+                }
+                VK_RCONTROL => {
+                    pressed.contains(&VK_RCONTROL)
                 }
                 _ => pressed.contains(&vk),
             };
@@ -171,13 +173,19 @@ impl ParsedKeyCombo {
             if v == vk {
                 return true;
             }
-            if (v == VK_LMENU || v == VK_RMENU) && vk == VK_MENU {
+            if v == VK_LMENU && (vk == VK_MENU || vk == VK_LMENU) {
+                return true;
+            }
+            if v == VK_RMENU && (vk == VK_MENU || vk == VK_RMENU) {
                 return true;
             }
             if (v == VK_LSHIFT || v == VK_RSHIFT) && vk == VK_SHIFT {
                 return true;
             }
-            if (v == VK_LCONTROL || v == VK_RCONTROL) && vk == VK_CONTROL {
+            if v == VK_LCONTROL && (vk == VK_CONTROL || vk == VK_LCONTROL) {
+                return true;
+            }
+            if v == VK_RCONTROL && (vk == VK_CONTROL || vk == VK_RCONTROL) {
                 return true;
             }
         }
@@ -488,7 +496,14 @@ unsafe extern "system" fn low_level_keyboard_proc(
             || (kbd_struct.flags.0 & LLKHF_LOWER_IL_INJECTED_FLAG != 0);
 
         if !is_injected {
-            let vk = kbd_struct.vkCode;
+            let mut vk = kbd_struct.vkCode;
+            let is_extended = (kbd_struct.flags.0 & 1) != 0;
+            if vk == VK_MENU {
+                vk = if is_extended { VK_RMENU } else { VK_LMENU };
+            } else if vk == VK_CONTROL {
+                vk = if is_extended { VK_RCONTROL } else { VK_LCONTROL };
+            }
+
             let is_down = wparam.0 == WM_KEYDOWN as usize || wparam.0 == WM_SYSKEYDOWN as usize;
             let is_up = wparam.0 == WM_KEYUP as usize || wparam.0 == WM_SYSKEYUP as usize;
 
@@ -533,14 +548,20 @@ fn handle_raw_key_event(state: &mut HookSharedState, vk: u32, is_down: bool, is_
                         state.candidate_start = Some(Instant::now());
                         // Open mic immediately in background (Section 4.5)
                         let _ = state.event_tx.send(HotkeyEvent::StartCandidate);
-                    } else if state.engine_state == EngineState::CandidateHold {
-                        // Check if held past tap threshold (Section 4.4)
-                        if let Some(start_t) = state.candidate_start {
-                            if start_t.elapsed() >= state.min_hold_time {
-                                state.engine_state = EngineState::Recording;
-                                let _ = state.event_tx.send(HotkeyEvent::StartConfirmed);
+
+                        // Spawn background timer to confirm recording when held past tap threshold (Section 4.4)
+                        let min_hold = state.min_hold_time;
+                        thread::spawn(move || {
+                            thread::sleep(min_hold);
+                            if let Ok(mut lock) = HOOK_STATE.try_lock() {
+                                if let Some(s) = lock.as_mut() {
+                                    if s.engine_state == EngineState::CandidateHold {
+                                        s.engine_state = EngineState::Recording;
+                                        let _ = s.event_tx.send(HotkeyEvent::StartConfirmed);
+                                    }
+                                }
                             }
-                        }
+                        });
                     }
                 }
             }
@@ -566,10 +587,18 @@ fn handle_raw_key_event(state: &mut HookSharedState, vk: u32, is_down: bool, is_
             let is_combo_key = state.hold_combo.contains_vk(vk);
             if is_combo_key {
                 if state.engine_state == EngineState::CandidateHold {
-                    // Released before minimum hold time: accidental tap!
-                    state.engine_state = EngineState::Idle;
-                    state.candidate_start = None;
-                    let _ = state.event_tx.send(HotkeyEvent::TapIgnored);
+                    let elapsed = state.candidate_start.map(|t| t.elapsed()).unwrap_or_default();
+                    if elapsed >= state.min_hold_time {
+                        // User held past threshold, just released
+                        state.engine_state = EngineState::Processing;
+                        state.candidate_start = None;
+                        let _ = state.event_tx.send(HotkeyEvent::Stop);
+                    } else {
+                        // Released before minimum hold time: accidental tap!
+                        state.engine_state = EngineState::Idle;
+                        state.candidate_start = None;
+                        let _ = state.event_tx.send(HotkeyEvent::TapIgnored);
+                    }
                 } else if state.engine_state == EngineState::Recording {
                     // Real hold finished: transition to processing
                     state.engine_state = EngineState::Processing;

@@ -277,7 +277,7 @@ export default function App() {
     setValidation(null);
   };
 
-  const handleKeyDownRecorder = (e: React.KeyboardEvent) => {
+  const handleKeyDownRecorder = (e: React.KeyboardEvent | KeyboardEvent) => {
     if (!isRecordingCombo) return;
     e.preventDefault();
     e.stopPropagation();
@@ -290,18 +290,39 @@ export default function App() {
       return;
     }
 
-    const current: string[] = [];
-    if (e.altKey) current.push("Alt");
-    if (e.ctrlKey) current.push("Ctrl");
-    if (e.shiftKey) current.push("Shift");
+    // Handle single key hotkeys (Section 4.9: Right Alt, Right Ctrl, F1-F24, CapsLock)
+    let current: string[] = [];
+    if (e.code === "AltRight" || e.key === "AltGraph") {
+      current = ["Right Alt"];
+    } else if (e.code === "ControlRight") {
+      current = ["Right Ctrl"];
+    } else if (e.code === "ShiftRight") {
+      current = ["Right Shift"];
+    } else if (e.code === "CapsLock") {
+      current = ["CapsLock"];
+    } else if (e.code === "ScrollLock") {
+      current = ["ScrollLock"];
+    } else if (e.code === "Pause") {
+      current = ["Pause"];
+    } else if (e.code === "Insert") {
+      current = ["Insert"];
+    } else if (/^F\d+$/.test(e.code)) {
+      current = [e.code];
+    } else {
+      // Standard modifier combinations
+      if (e.altKey) current.push("Alt");
+      if (e.ctrlKey) current.push("Ctrl");
+      if (e.shiftKey) current.push("LShift");
 
-    let mainKey = e.code.replace(/^(Key|Digit)/, "");
-    if (mainKey === "Space") mainKey = "Space";
-    if (
-      !["Alt", "Control", "Shift", "Meta"].includes(keyName) &&
-      !current.includes(mainKey)
-    ) {
-      current.push(mainKey);
+      let mainKey = e.code.replace(/^(Key|Digit)/, "");
+      if (mainKey === "Space") mainKey = "Space";
+      if (
+        !["Alt", "Control", "Shift", "Meta", "AltGraph"].includes(keyName) &&
+        !["AltLeft", "AltRight", "ControlLeft", "ControlRight", "ShiftLeft", "ShiftRight"].includes(e.code) &&
+        !current.includes(mainKey)
+      ) {
+        current.push(mainKey);
+      }
     }
 
     if (current.length > 0) {
@@ -319,6 +340,18 @@ export default function App() {
         .catch(() => {});
     }
   };
+
+  // Global keydown capture so clicking "Change Shortcut" immediately listens anywhere
+  useEffect(() => {
+    if (!isRecordingCombo) return;
+    const onGlobalKey = (e: KeyboardEvent) => {
+      handleKeyDownRecorder(e);
+    };
+    window.addEventListener("keydown", onGlobalKey, true);
+    return () => {
+      window.removeEventListener("keydown", onGlobalKey, true);
+    };
+  }, [isRecordingCombo, settings.hold_hotkey, settings.toggle_hotkey]);
 
   const commitRecordedCombo = () => {
     if (!isRecordingCombo || recordedKeys.length === 0) return;
@@ -545,10 +578,65 @@ export default function App() {
                     >
                       Toggle Mode ({settings.toggle_hotkey})
                     </button>
+                    <button
+                      className="win-btn-secondary small"
+                      onClick={() => startRecordingCombo(settings.mode === "hold" ? "hold" : "toggle")}
+                    >
+                      {isRecordingCombo ? "Listening..." : "Change Key"}
+                    </button>
                   </div>
+
+                  {isRecordingCombo && (
+                    <div
+                      style={{
+                        padding: 12,
+                        borderRadius: 8,
+                        background: "rgba(255,213,5,0.06)",
+                        border: "1px dashed var(--win-accent)",
+                        marginBottom: 14,
+                      }}
+                    >
+                      <div style={{ fontSize: "12px", color: "var(--win-text-secondary)", marginBottom: 4 }}>
+                        Press your shortcut (e.g. Right Alt, Alt+LShift, Ctrl+Space):
+                      </div>
+                      <div style={{ fontSize: "16px", fontWeight: 700, color: "#fff", marginBottom: 6 }}>
+                        {recordedKeys.length > 0 ? recordedKeys.join(" + ") : "Listening for keys..."}
+                      </div>
+
+                      {validation && (
+                        <div className={`win-validation-box ${validation.tier}`} style={{ marginBottom: 8 }}>
+                          <span>
+                            {validation.tier === "blocked" && "⛔ Blocked: "}
+                            {validation.tier === "warning" && "⚠️ Warning: "}
+                            {validation.tier === "ok" && "✓ OK: "}
+                            {validation.reason}
+                          </span>
+                        </div>
+                      )}
+
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button
+                          className="win-btn-primary small"
+                          disabled={!validation || validation.tier === "blocked"}
+                          onClick={commitRecordedCombo}
+                        >
+                          Save Shortcut
+                        </button>
+                        <button
+                          className="win-btn-secondary small"
+                          onClick={() => setIsRecordingCombo(null)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   <div style={{ padding: 12, borderRadius: 8, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
                     <span style={{ fontSize: "12px", color: "var(--win-text-secondary)" }}>
-                      Try it now: Hold <strong>{activeHotkeyDisplay}</strong>, say something, and release!
+                      {settings.mode === "hold"
+                        ? `Try it now: Hold ${activeHotkeyDisplay}, say something, and release!`
+                        : `Try it now: Tap ${activeHotkeyDisplay} to start, say something, and tap again to finish!`}
                     </span>
                     <div style={{ marginTop: 8, color: "#fff", fontSize: "13px", minHeight: 24 }}>
                       {testDictationText || (isDictating ? "🎙️ Listening..." : "Dictated text will show here.")}

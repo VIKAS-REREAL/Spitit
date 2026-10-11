@@ -73,7 +73,10 @@ D:\codevs\Spitit\
 3. **Injected Keystroke Guard**: Events flagged with `LLKHF_INJECTED` are ignored, preventing Spitit’s own automated `Ctrl+V` pastes from triggering or corrupting hotkey detection.
 4. **Watchdog Timer & Self-Healing**: A 2-second background heartbeat thread monitors hook vitality and transparently unhooks and re-registers `WH_KEYBOARD_LL` if Windows silently detaches it due to callback latency or sleep/wake cycles.
 5. **Missed Key-Up Recovery**: Periodic state synchronization uses `GetAsyncKeyState` to detect if physical keys were released during window switches (Alt+Tab) or lock screen events.
-6. **3-Tier Hotkey Validation**:
+6. **Candidate Promotion Timer (Hold Mode)**: When entering `CandidateHold`, a background timer thread checks if the combo is held past `min_hold_time` and automatically promotes state to `Recording` (`StartConfirmed`), popping up the pill and starting wave animations while holding. On physical key release, the dictation stops and transcribes cleanly.
+7. **Extended Key Normalization & Right Alt (`VK_RMENU`)**: Extended key flags (`LLKHF_EXTENDED`) in `WH_KEYBOARD_LL` are inspected to distinguish Left Alt (`VK_LMENU`) from Right Alt (`VK_RMENU`). Right Alt is supported both as a single-key hotkey and in multi-key combinations with Warning tier validation.
+8. **Global Key Recorder**: Key listening in `App.tsx` captures key events globally at the capture phase, instantly detecting pressed keys without requiring manual input focus.
+9. **3-Tier Hotkey Validation**:
    - **Blocked**: Single typing keys (letters, digits, space, Enter, Tab), Esc, system-reserved combos (`Win+*`, `Ctrl+Alt+Del`, `Alt+Tab`, `Alt+F4`, `Ctrl+C/V/X/Z/A/S/W/T/N`).
    - **Warning**: Layout switchers (`Alt+Shift`, `Ctrl+Shift`), `Right Alt`, `Ctrl+Space`, modifier + letter.
    - **OK**: Standard safe combinations (e.g. `Alt + LShift`, `Ctrl + Shift + Space`).
@@ -81,9 +84,10 @@ D:\codevs\Spitit\
 ### B. Thread-Safe Audio Pipeline (`recorder.rs`)
 1. **Actor Architecture**: Completely eliminated `unsafe impl Send/Sync` on `cpal::Stream`. The stream lives exclusively inside a dedicated audio worker thread communicating over thread channels.
 2. **Mic-First Startup**: Audio stream initializes on key press (`StartCandidate`). UI and sounds only trigger once audio is confirmed flowing and the tap threshold is met (`StartConfirmed`).
-3. **Real-Time RMS Voice Streaming**: Calculates RMS mic levels and streams live updates (30–50 Hz) over Tauri IPC to drive the pill's waveform bars.
-4. **90-Second Hard Cutoff & Countdown**: Automatically stops recording at 90 seconds. Emits a live countdown during the final 10 seconds. On cutoff, audio is transcribed and pasted immediately.
-5. **Silence Trimming**: In-memory leading and trailing silence trimming drops empty air before uploading to Groq. Audio containing no audible speech is dropped locally and triggers an honest error without burning API tokens.
+3. **Windows Microphone Privacy Detection**: Checks Windows Registry (`ConsentStore\microphone` and `NonPackaged` subkeys) for global or desktop privacy denials, immediately returning honest error codes (`ERR_MIC_PRIVACY_GLOBAL`, `ERR_MIC_PRIVACY_APPS`) with settings deep-linking instead of failing silently.
+4. **Real-Time RMS Voice Streaming**: Calculates RMS mic levels and streams live updates (30–50 Hz) over Tauri IPC to drive the pill's waveform bars.
+5. **90-Second Hard Cutoff & Countdown**: Automatically stops recording at 90 seconds. Emits a live countdown during the final 10 seconds. On cutoff, audio is transcribed and pasted immediately.
+6. **Silence Trimming**: In-memory leading and trailing silence trimming drops empty air before uploading to Groq. Audio containing no audible speech is dropped locally and triggers an honest error without burning API tokens.
 
 ### C. Signature Display-Only Pill Capsule (`Pill.tsx`, `Pill.css`, `PillWindow.tsx`)
 1. **Layout & Elements**:
@@ -91,7 +95,7 @@ D:\codevs\Spitit\
    - **Middle**: 5 dynamic voice-reactive waveform bars driven by real-time mic levels (resting calmly in silence, expanding dynamically with speech intensity).
    - **Right**: Elapsed timer / countdown display.
    - **Zero Buttons**: Completely display-only during recording and processing. No stop or cancel buttons.
-2. **Rotating Border Beam**: Implemented using `@property --beam-angle` with an animated conic gradient along the capsule border. Runs exclusively during `recording`, respects `prefers-reduced-motion`, and has a settings toggle.
+2. **Rotating Border Beam**: Implemented using `@property --beam-angle` with an animated conic gradient along the capsule border. Runs exclusively during `recording`, respects `prefers-reduced-motion`, and dynamically updates live upon settings changes via `settings_updated` event listener.
 3. **Anti-Maximize & Anti-Trap Protection**:
    - Stripped `WS_MAXIMIZEBOX` and `WS_THICKFRAME` on the HWND in `lib.rs`.
    - Single drag mechanism guarded by `e.detail === 1`. Double-clicks and triple-clicks are strictly intercepted with `e.preventDefault()`, completely preventing the window from scaling or trapping the mouse cursor.

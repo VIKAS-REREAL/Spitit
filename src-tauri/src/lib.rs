@@ -275,6 +275,7 @@ fn save_all_settings(
     *state.language.lock().unwrap() = new_settings.language.clone();
     *state.settings.lock().unwrap() = new_settings.clone();
 
+    let _ = app.emit("settings_updated", &new_settings);
     let _ = app.emit("language_changed", &new_settings.language);
     let tray_items = state.tray_lang_items.lock().unwrap().clone();
     if let Some((en_item, hi_item)) = tray_items {
@@ -736,7 +737,7 @@ pub fn run() {
                                 None => {
                                     // Too short or empty
                                     app_state.hotkey_mgr.set_engine_state(EngineState::Idle);
-                                    let _ = handle_worker.emit("recording_state", "cancelled");
+                                    let _ = handle_worker.emit("recording_state", "error:ERR_NO_SPEECH: Recording was too short. Hold and speak clearly.");
                                     continue;
                                 }
                             };

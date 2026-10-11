@@ -88,7 +88,21 @@ export default function PillWindow() {
       }
     });
 
-    // 4. Recording states from Rust backend
+    // 4. Live settings changes from main window (Pill edge animation, sound, volume)
+    const unlistenSettings = listen<UserSettings>("settings_updated", (event) => {
+      const s = event.payload;
+      if (s) {
+        if (s.pill_edge_animation !== undefined) {
+          setEdgeAnimEnabled(s.pill_edge_animation);
+        }
+        soundSettingsRef.current = {
+          play_sound: s.play_sound ?? true,
+          volume: (s.sound_volume ?? 70) / 100,
+        };
+      }
+    });
+
+    // 5. Recording states from Rust backend
     const unlistenState = listen<string>("recording_state", (event) => {
       const s = event.payload;
       if (s === "recording") {
@@ -109,23 +123,23 @@ export default function PillWindow() {
         setCountdownRemaining(null);
 
         // Map honest errors according to Section 4.5
-        if (raw.includes("ERR_PERMISSION_DENIED")) {
-          setErrorMessage("Mic Blocked (Click)");
+        if (raw.includes("ERR_MIC_PRIVACY") || raw.includes("ERR_PERMISSION_DENIED")) {
+          setErrorMessage("Mic Blocked (Fix)");
           setErrorType("privacy");
         } else if (raw.includes("ERR_NO_DEVICE")) {
-          setErrorMessage("No Mic Found (Click)");
+          setErrorMessage("No Mic Found");
           setErrorType("sound_settings");
         } else if (raw.includes("ERR_DEVICE_BUSY")) {
           setErrorMessage("Mic In Use by App");
           setErrorType("sound_settings");
         } else if (raw.includes("ERR_NO_SPEECH")) {
-          setErrorMessage("Couldn't hear you");
+          setErrorMessage("Can't Hear You");
           setErrorType("no_speech");
         } else if (raw.includes("ERR_NO_API_KEY")) {
-          setErrorMessage("No Groq Key (Click)");
+          setErrorMessage("No Groq Key");
           setErrorType("api_key");
         } else if (raw.includes("ERR_INVALID_KEY")) {
-          setErrorMessage("Invalid Key (Click)");
+          setErrorMessage("Invalid Key");
           setErrorType("api_key");
         } else if (raw.includes("ERR_RATE_LIMIT")) {
           setErrorMessage("Groq Rate Limit");
@@ -134,7 +148,7 @@ export default function PillWindow() {
           setErrorMessage("No Internet");
           setErrorType("network");
         } else if (raw.includes("ERR_ELEVATED")) {
-          setErrorMessage("Admin Target (Copied)");
+          setErrorMessage("Admin App (Copied)");
           setErrorType("elevated");
         } else {
           setErrorMessage(raw.length > 20 ? raw.slice(0, 18) + "..." : raw);
@@ -179,6 +193,7 @@ export default function PillWindow() {
       unlistenCountdown.then((f) => f());
       unlistenStartSound.then((f) => f());
       unlistenDoneSound.then((f) => f());
+      unlistenSettings.then((f) => f());
       unlistenState.then((f) => f());
       unlistenMeta.then((f) => f());
       unlistenApp.then((f) => f());
