@@ -1,20 +1,22 @@
-﻿# REREAL Spitit v3 — Architecture, Context & Progress
+# REREAL Spitit v3 — Architecture, Context & Progress
 
-> **Context for Antigravity & Collaborators**: This document contains the complete context, architectural blueprints, implementation status, and instructions for REREAL Spitit v3. Spitit is a high-speed, voice dictation desktop app for Windows.
+> **Context for Antigravity & Collaborators**: This document contains the complete context, architectural blueprints, implementation status, and instructions for REREAL Spitit v3. Spitit is a high-speed, voice dictation desktop app for Windows 10 & 11 built with Tauri 2, Rust, and React 19.
 
 ---
 
-## 1. Executive Summary & Stack
+## 1. Executive Summary & Production Stack
 
 | Dimension | Specification |
 |---|---|
-| **Core Architecture** | **Tauri 2 (Rust Core + WebView2 React/Vite/TS UI)** |
-| **Idle Resource Target** | **≤ 40 MB RAM**, 0% CPU idle in system tray |
-| **Store Packaging** | **MSIX** (signed by Microsoft Store, no expensive third-party certs) |
-| **Audio Pipeline** | `cpal` (WASAPI 16 kHz mono) → in-memory WAV (`hound`) → Groq Whisper (`whisper-large-v3-turbo`) |
-| **Hinglish Normalizer** | Groq Llama (`llama-3.1-8b-instant`) Roman script cleanup |
-| **Output Pipeline** | Clipboard set (`arboard`) + Win32 `SendInput` `Ctrl+V` |
-| **Security** | Windows Credential Manager (`keyring` crate) for Groq API Key |
+| **Core Architecture** | **Tauri 2 (Rust Core + WebView2 React 19/Vite/TS UI)** |
+| **Idle Resource Target** | **≤ 40 MB RAM** (Native Rust process idles at ~25 MB WS / ~5 MB Private commit), 0% CPU idle in system tray |
+| **Store Packaging & Dist** | **NSIS Installer** (`Spitit_3.0.0_x64-setup.exe`) + **MSIX Ready** |
+| **Audio Pipeline** | Channel-based actor model (`cpal` WASAPI 16 kHz mono) → in-memory WAV (`hound`) → Groq Whisper (`whisper-large-v3-turbo`) |
+| **Silence Trimming** | Leading and trailing silence trimmed in-memory before upload; silent audio dropped before network API calls |
+| **Hinglish Normalizer** | Groq Llama (`llama-3.1-8b-instant`) Roman script cleanup guidance |
+| **Output Pipeline** | Win32 modifier release verification → clipboard set (`arboard`) → Win32 `SendInput` `Ctrl+V` |
+| **Storage & Privacy** | Decoupled **SQLite** (`rusqlite`): `text_history` (500 cap, toggleable) + `usage_stats` (numbers only, 90-day retention) |
+| **Security** | Windows Credential Manager (`keyring` crate) for Groq API Key. Zero plain-text keys on disk. |
 
 ---
 
@@ -22,28 +24,33 @@
 
 ```
 D:\codevs\Spitit\
-├── assets\                     # Application icons (.ico, .png, .svg) and sound (done.wav)
-├── public\                     # Static web assets
+├── assets\                     # Application icons (.ico, .png, .svg) and UI assets
+├── public\                     # Static web assets & chime sound files (start.wav, done.wav)
 ├── src\                        # React 19 + TypeScript Frontend
 │   ├── components\
-│   │   ├── Pill.tsx            # Signature Pill Capsule (Recording, Silent, Done, Cancelled, Error)
-│   │   ├── Pill.css            # Conic-gradient edge shine, wave animations, glassmorphism
-│   │   └── PillStudio.tsx      # Interactive visual gallery & state simulator
-│   ├── App.tsx                 # Main application dashboard & Step 1 test harness
-│   ├── App.css                 # Base theme styles (Dark mode, Brand Yellow #FFD505)
-│   └── main.tsx                # React root mount
+│   │   ├── Pill.tsx            # Display-only signature Pill Capsule (Icon, Voice Waveform, Timer)
+│   │   └── Pill.css            # Rotating edge beam (@property --beam-angle), audio bars, glassmorphism
+│   ├── App.tsx                 # Main application dashboard, 6-step onboarding wizard, settings, history
+│   ├── App.css                 # Base theme styles (Dark mode, Brand Yellow #FFD505, validation badges)
+│   ├── PillWindow.tsx          # Pill window controller, audio chimes, honest error mapping
+│   └── main.tsx                # React root mount with dynamic window label routing ("pill" vs "main")
 ├── src-tauri\                  # Rust Backend
 │   ├── src\
-│   │   ├── hotkey.rs           # Low-level keyboard hook (WH_KEYBOARD_LL) for Alt+LShift
-│   │   ├── recorder.rs         # cpal WASAPI 16 kHz mono capture & hound in-memory WAV
-│   │   ├── transcriber.rs      # Port of Groq Whisper + Llama Hinglish cleanup 1:1
-│   │   ├── paster.rs           # Native clipboard set & SendInput Ctrl+V auto-paster
+│   │   ├── hotkey.rs           # Low-level keyboard hook (WH_KEYBOARD_LL), watchdog, 3-tier validation
+│   │   ├── recorder.rs         # Actor-model cpal WASAPI recorder, RMS level streaming, 90s cutoff
+│   │   ├── transcriber.rs      # Groq Whisper turbo + Llama Hinglish cleanup & structured error codes
+│   │   ├── paster.rs           # Active window targeting, modifier release wait, elevated window check
 │   │   ├── credentials.rs      # Windows Credential Manager storage for Groq API key
-│   │   ├── lib.rs              # Tauri 2 app builder, single-instance, tray icon, & IPC
+│   │   ├── db.rs               # Decoupled SQLite database (text_history cap 500, usage_stats 90-day)
+│   │   ├── settings.rs         # Persistent settings manager (settings.json in LocalAppData)
+│   │   ├── app_tracker.rs      # Win32 foreground tracker, CoreWindow resolution, RGBA PNG icons
+│   │   ├── lib.rs              # Tauri 2 app builder, decoupled event loop, multi-monitor DPI, IPC
 │   │   └── main.rs             # Application entry point
 │   ├── Cargo.toml              # Rust crate dependencies
 │   ├── build.rs                # Tauri build hook
 │   └── tauri.conf.json         # Tauri 2 window & bundle configuration
+├── spitit-v3.exe               # Standalone production executable
+├── Spitit_3.0.0_x64-setup.exe  # Production NSIS setup installer
 ├── package.json                # Frontend npm configuration
 ├── tsconfig.json               # TypeScript configuration
 ├── vite.config.ts              # Vite configuration
@@ -54,66 +61,75 @@ D:\codevs\Spitit\
 
 ---
 
-## 3. What Has Been Completed
+## 3. Core Architectural Implementations & Completed Features
 
-### A. Step 1: Core Spike (Proven & Implemented)
-1. **Low-Level Hook (`hotkey.rs`)**:
-   - Implemented using Win32 `WH_KEYBOARD_LL`.
-   - Supports modifier-only combinations (`Alt + LShift`).
-   - **Hold Mode**: Starts recording on combo down. Switching windows (Alt+Tab) or pressing extra keys does NOT stop recording; only releasing a combo key stops it.
-   - **Toggle Mode**: Starts recording on press, stops ONLY when the same combo is pressed again.
-   - **Debounce**: Prevents Windows from firing the language layout switcher.
-   - Never swallows regular keys (`CallNextHookEx`).
-2. **Audio Capture (`recorder.rs`)**:
-   - `cpal` WASAPI stream recording at 16,000 Hz, mono channel.
-   - In-memory encoding using `hound`. No temporary disk files.
-   - Minimum duration enforcement (0.3s) and auto-stop limit (120s).
-   - RMS volume silence check (`threshold: 0.01`).
-3. **Transcription (`transcriber.rs`)**:
-   - 1:1 port from Python reference using `reqwest`.
-   - Uses `whisper-large-v3-turbo` with prompt guidance.
-   - Hinglish cleanup mode calls `llama-3.1-8b-instant` with exact system prompt, temperature `0.05`, max tokens `1024`.
-4. **Auto-Paste (`paster.rs`)**:
-   - Clipboard set via `arboard`.
-   - 50ms delay for clipboard settling.
-   - Simulates `Ctrl+V` using Win32 `SendInput`.
-5. **Credential Storage (`credentials.rs`)**:
-   - Integrates with Windows Credential Manager (`keyring` crate).
-   - Target name: `REREAL_Spitit`. No plain-text API keys in JSON files.
-6. **Single Instance & System Tray (`lib.rs`)**:
-   - Uses `tauri-plugin-single-instance`. Second launch brings the active window to front.
-   - System tray registered with "Open Spitit" and "Quit Spitit".
+### A. Decoupled State Machine & Reliable Hotkey Engine (`hotkey.rs`)
+1. **Four-State Engine**: States are managed centrally via `EngineState`:
+   - `Idle`: Listening for hotkey press.
+   - `CandidateHold`: Hotkey pressed; microphone stream starts immediately, tap threshold timer ticking.
+   - `Recording`: Tap threshold exceeded; pill appears, rotating edge beam spins, voice level bars activate.
+   - `Processing`: Transcribing and pasting. **Hotkey presses while processing are strictly ignored**.
+2. **Decoupled Worker Loop**: The hotkey event receiver runs in its own worker thread and spawns asynchronous Tokio tasks for network transcription and pasting. Network latency can never block the hotkey channel.
+3. **Injected Keystroke Guard**: Events flagged with `LLKHF_INJECTED` are ignored, preventing Spitit’s own automated `Ctrl+V` pastes from triggering or corrupting hotkey detection.
+4. **Watchdog Timer & Self-Healing**: A 2-second background heartbeat thread monitors hook vitality and transparently unhooks and re-registers `WH_KEYBOARD_LL` if Windows silently detaches it due to callback latency or sleep/wake cycles.
+5. **Missed Key-Up Recovery**: Periodic state synchronization uses `GetAsyncKeyState` to detect if physical keys were released during window switches (Alt+Tab) or lock screen events.
+6. **3-Tier Hotkey Validation**:
+   - **Blocked**: Single typing keys (letters, digits, space, Enter, Tab), Esc, system-reserved combos (`Win+*`, `Ctrl+Alt+Del`, `Alt+Tab`, `Alt+F4`, `Ctrl+C/V/X/Z/A/S/W/T/N`).
+   - **Warning**: Layout switchers (`Alt+Shift`, `Ctrl+Shift`), `Right Alt`, `Ctrl+Space`, modifier + letter.
+   - **OK**: Standard safe combinations (e.g. `Alt + LShift`, `Ctrl + Shift + Space`).
 
-### B. Step 2: The Pill UI & Design Reference Parity
-Implemented in [`src/components/Pill.tsx`](./src/components/Pill.tsx) and [`src/components/Pill.css`](./src/components/Pill.css):
-1. **Geometry & Glassmorphism**:
-   - Fully rounded capsule, `#111113` dark glass, backdrop blur `16px`, subtle 1px border.
-   - Draggable anywhere across monitors with smooth mouse drag delta.
-2. **Conic-Gradient Edge Shine**:
-   - Uses CSS `@property --shine-angle` and rotating `conic-gradient` highlight behind a 1.5px border mask.
-   - Runs exclusively during the `recording` state.
-3. **Pill States Implemented**:
-   - **Recording**: Cancel `x` on left, live reacting waveform bars, red stop square on right, border shine active.
-   - **Silent / Low Voice**: Waveform dots/dashes waiting for voice level.
-   - **Processing**: Smooth spinner arc morphing from the waveform.
-   - **Done**: Self-drawing checkmark tick (`stroke-dashoffset` animation) + `12 words` green tag.
-   - **Cancelled Toast** *(from user screenshot bottom-right)*:
-     - Purple/violet `(!)` circle badge.
-     - "Transcript cancelled" label.
-     - Rounded "Undo" button.
-   - **Error Pop-up Box ("We couldn't hear you")** *(from user screenshot top-right)*:
-     - Red `(!)` circle badge + "We couldn't hear you" title.
-     - Description: "We didn't pick up any speech from your Built-in mic (recommended) microphone".
-     - Action buttons: `Select microphone` and `Troubleshoot`.
-     - Top-right close `x` dismiss button.
-4. **Pill Studio (`PillStudio.tsx`)**:
-   - Integrated in `App.tsx` for live state simulation, state switching, and side-by-side design inspection.
+### B. Thread-Safe Audio Pipeline (`recorder.rs`)
+1. **Actor Architecture**: Completely eliminated `unsafe impl Send/Sync` on `cpal::Stream`. The stream lives exclusively inside a dedicated audio worker thread communicating over thread channels.
+2. **Mic-First Startup**: Audio stream initializes on key press (`StartCandidate`). UI and sounds only trigger once audio is confirmed flowing and the tap threshold is met (`StartConfirmed`).
+3. **Real-Time RMS Voice Streaming**: Calculates RMS mic levels and streams live updates (30–50 Hz) over Tauri IPC to drive the pill's waveform bars.
+4. **90-Second Hard Cutoff & Countdown**: Automatically stops recording at 90 seconds. Emits a live countdown during the final 10 seconds. On cutoff, audio is transcribed and pasted immediately.
+5. **Silence Trimming**: In-memory leading and trailing silence trimming drops empty air before uploading to Groq. Audio containing no audible speech is dropped locally and triggers an honest error without burning API tokens.
+
+### C. Signature Display-Only Pill Capsule (`Pill.tsx`, `Pill.css`, `PillWindow.tsx`)
+1. **Layout & Elements**:
+   - **Left**: Captured active application icon (captured at hotkey press).
+   - **Middle**: 5 dynamic voice-reactive waveform bars driven by real-time mic levels (resting calmly in silence, expanding dynamically with speech intensity).
+   - **Right**: Elapsed timer / countdown display.
+   - **Zero Buttons**: Completely display-only during recording and processing. No stop or cancel buttons.
+2. **Rotating Border Beam**: Implemented using `@property --beam-angle` with an animated conic gradient along the capsule border. Runs exclusively during `recording`, respects `prefers-reduced-motion`, and has a settings toggle.
+3. **Anti-Maximize & Anti-Trap Protection**:
+   - Stripped `WS_MAXIMIZEBOX` and `WS_THICKFRAME` on the HWND in `lib.rs`.
+   - Single drag mechanism guarded by `e.detail === 1`. Double-clicks and triple-clicks are strictly intercepted with `e.preventDefault()`, completely preventing the window from scaling or trapping the mouse cursor.
+4. **Single-Source Audio Playback**: Chime playback is centralized in `PillWindow.tsx` via `play_start_sound` and `play_done_sound` backend events, eliminating double-sound bugs.
+5. **State Morphs**:
+   - `Recording` → `Processing` (waveform morphs into smooth CSS spinner with "Transcribing" label).
+   - `Processing` → `Done` (self-drawing checkmark tick + word count tag).
+   - `Escape` → `Cancelled` (brief neutral dismissal).
+   - `Error` → Cross icon with plain-language cause (never "Cancelled" for errors). Clicking the error pill directly deep-links to the corresponding Windows Settings page (`ms-settings:privacy-microphone`, `ms-settings:sound`).
+
+### D. Active Application Tracking (`app_tracker.rs`)
+1. **32-Bit RGBA PNG Icons**: Replaced BMP extraction with high-quality PNG data URLs, preserving full alpha transparency at small icon sizes.
+2. **Packaged UWP/MSIX Support**: Traverses child `CoreWindow` handles beneath `ApplicationFrameWindow` to extract real executable paths and icons for modern Windows Store apps.
+3. **Non-Blocking & Retryable**: Extraction runs asynchronously in background tasks. Failed lookups fallback to a neutral mic glyph and are retried on future switches rather than permanently cached as `None`.
+4. **Captured at Press Time**: Active window HWND and metadata are frozen at the exact moment the hotkey is pressed, ensuring the transcript pastes to the correct window even if focus shifts while speaking.
+
+### E. Output Pipeline & Paste Safety (`paster.rs`)
+1. **Modifier Release Wait**: Uses `GetAsyncKeyState` to confirm physical modifier keys (Alt, Shift, Ctrl) are released before sending `Ctrl+V`.
+2. **Target Activation**: Activates the target window via Win32 `SetForegroundWindow` and `BringWindowToTop`.
+3. **Elevated Window Detection**: Checks if the target window belongs to an elevated (Admin) process. If non-elevated Spitit cannot paste into it, Spitit leaves the text in the clipboard and alerts the user instead of failing silently.
+4. **Clipboard Retention & Win+V History**: The transcript remains in the user's clipboard and is included in Windows Clipboard History (Win+V). Detects whether Clipboard History is enabled and prompts the user to enable it.
+
+### F. Decoupled SQLite Database (`db.rs`)
+1. **`text_history` Table**: Stores transcribed text, app name, icon, language, and timestamp. Capped strictly at 500 records. Controlled by the **"Save history"** toggle (no text is written to disk if toggled off).
+2. **`usage_stats` Table**: Stores only telemetry metadata (timestamp, word count, speaking duration, app name, language). **Zero speech text is stored**. Has its own **"Keep usage stats"** toggle with automatic 90-day retention pruning.
+3. **Honest Dashboard Calculations**: Real WPM computed from active speaking duration; real 7-day calendar day distribution; time saved estimated vs 40 WPM typing. Empty states shown when data is empty.
+
+### G. Security & Credentials (`credentials.rs`)
+1. **Windows Credential Manager Only**: API keys are stored exclusively in Credential Manager via `keyring` (Target: `REREAL_Spitit`).
+2. **Zero Plain-Text Keys**: Automatically migrates and permanently deletes legacy `groq.key` files from `%LOCALAPPDATA%`.
+
+### H. First-Run Onboarding & System Lifecycle (`App.tsx`, `lib.rs`)
+1. **6-Step Onboarding Wizard**: First launch presents a guided setup covering Welcome, API Key validation, Hotkey testing, Live microphone VU meter test, Win+V clipboard history check, and Ready summary.
+2. **Silent Startup**: Windows startup launches passing `--autostart` start completely silently in the system tray without opening any windows or showing splashes.
 
 ---
 
-## 4. Development & Build Commands
-
-Inside `D:\codevs\Spitit`:
+## 4. Build & Distribution
 
 ```bash
 # 1. Install frontend dependencies
@@ -122,22 +138,10 @@ npm install
 # 2. Run Vite frontend dev server (Pill & UI preview)
 npm run dev
 
-# 3. Build frontend bundle
-npm run build
-
-# 4. Run Tauri desktop app (requires MSVC build tools on Windows)
-npm run tauri dev
+# 3. Build production bundle and NSIS installer
+npm run tauri build
 ```
 
----
-
-## 5. Next Steps for Step 3 & 4
-
-1. **Window Hierarchy**:
-   - Split Tauri configuration into two windows:
-     - `pill`: Frameless, transparent, `alwaysOnTop: true`, `skipTaskbar: true`, `decorations: false`.
-     - `main`: Settings window (Home, History SQLite, Dictation, Sound, API Key), hidden to tray on close.
-2. **Active App Icon Resolution**:
-   - Integrate Win32 `EVENT_SYSTEM_FOREGROUND` via `SetWinEventHook` to extract and display the foreground process icon inside the pill's left circle with crossfade animation.
-3. **SQLite History**:
-   - Integrate SQLite (`rusqlite`) for local history cap of 500 dictations.
+Production artifacts generated:
+- Standalone executable: `D:\codevs\Spitit\spitit-v3.exe`
+- NSIS Setup Installer: `D:\codevs\Spitit\Spitit_3.0.0_x64-setup.exe`

@@ -209,7 +209,7 @@ fn toggle_maximize_window(app: tauri::AppHandle) {
 #[tauri::command]
 fn close_window(app: tauri::AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
-        let _ = win.destroy();
+        let _ = win.hide();
     }
 }
 
