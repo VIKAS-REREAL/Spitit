@@ -11,18 +11,40 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+website/dist
+website/node_modules
 *.local
 target/
 src-tauri/target/
 
-# Binaries & Installers (Bulky files excluded)
+# Binaries, Installers & Bulky outputs
 *.exe
 *.msi
 *.msix
 *.appx
 *.pdb
+*.bundle
 
-# Scratch test scripts & captures
+# Secrets, API Keys & Certificates
+.env
+.env.*
+*.env
+*.pfx
+*.key
+*.pem
+*.cer
+*.crt
+*.p12
+*.keystore
+groq.key
+signing.config
+*.publishsettings
+
+# Machine-specific Local Cargo Configuration
+.cargo/config.toml
+src-tauri/.cargo/config.toml
+
+# Scratch test scripts, temporary captures & local scratch
 test_*.ps1
 find_*.ps1
 capture_pill.ps1
@@ -30,6 +52,9 @@ measure_ram.ps1
 list_all_windows.ps1
 run_cmd.bat
 real_tauri_*
+scratch/
+temp_*
+tmp_*
 
 # Editor & OS files
 .vscode/*

@@ -1,0 +1,94 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build & Package Windows Release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> src-tauri/target"
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: Extract Tag Version
+        id: vars
+        shell: bash
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "tag_name=v$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Build Tauri Application Bundle
+        run: npx @tauri-apps/cli build
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Collect & Name Release Artifacts
+        shell: bash
+        run: |
+          mkdir -p release-artifacts
+
+          # Copy NSIS Setup installer with fixed versioned naming
+          cp src-tauri/target/release/bundle/nsis/Spitit_*_x64-setup.exe release-artifacts/Spitit_${{ env.VERSION }}_x64-setup.exe 2>/dev/null || cp src-tauri/target/release/bundle/nsis/*.exe release-artifacts/Spitit_${{ env.VERSION }}_x64-setup.exe
+
+          # Copy Portable executable with fixed versioned naming
+          cp src-tauri/target/release/spitit-v3.exe release-artifacts/Spitit_${{ env.VERSION }}_portable.exe
+
+          # Compute SHA-256 Checksums
+          cd release-artifacts
+          sha256sum Spitit_${{ env.VERSION }}_x64-setup.exe Spitit_${{ env.VERSION }}_portable.exe > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Spitit v${{ env.VERSION }}"
+          tag_name: ${{ github.ref }}
+          draft: true
+          prerelease: false
+          files: |
+            release-artifacts/Spitit_${{ env.VERSION }}_x64-setup.exe
+            release-artifacts/Spitit_${{ env.VERSION }}_portable.exe
+            release-artifacts/SHA256SUMS.txt
+          body: |
+            ## Spitit v${{ env.VERSION }}
+            
+            ### Official Downloads (Windows 10 & 11, 64-bit)
+            - **Installer (NSIS Setup):** `Spitit_${{ env.VERSION }}_x64-setup.exe`
+            - **Standalone Portable:** `Spitit_${{ env.VERSION }}_portable.exe`
+            - **Checksums:** `SHA256SUMS.txt`
+            
+            ### Verification
+            Verify the integrity of downloaded files with PowerShell:
+            ```powershell
+            Get-FileHash -Algorithm SHA256 .\Spitit_${{ env.VERSION }}_x64-setup.exe
+            ```
+            Compare against the published `SHA256SUMS.txt`.
+            
+            ### Notes
+            - See [SECURITY.md](https://github.com/VIKAS-REREAL/Spitit/blob/main/SECURITY.md) for vulnerability reporting.
+            - See [TRADEMARK.md](https://github.com/VIKAS-REREAL/Spitit/blob/main/TRADEMARK.md) for brand guidelines.

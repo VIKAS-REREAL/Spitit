@@ -1,0 +1,50 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    name: Lint, Test & Build (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> src-tauri/target"
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: Typecheck & Build Frontend
+        run: npm run build
+
+      - name: Check Rust Formatting
+        run: cargo fmt --check
+        working-directory: src-tauri
+
+      - name: Run Clippy Linter
+        run: cargo clippy --all-targets -- -D warnings
+        working-directory: src-tauri
+
+      - name: Run Rust Tests
+        run: cargo test
+        working-directory: src-tauri

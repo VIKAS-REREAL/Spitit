@@ -1,0 +1,77 @@
+name: Bug Report
+description: Create a report to help us improve Spitit
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please ensure you have checked [SUPPORT.md](https://github.com/VIKAS-REREAL/Spitit/blob/main/SUPPORT.md) before submitting.
+
+  - type: input
+    id: version
+    attributes:
+      label: Spitit Version
+      description: What version of Spitit are you running? (e.g., v3.0.0, portable, or installer)
+      placeholder: v3.0.0 (installer)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Windows Version
+      options:
+        - Windows 11 (23H2 or newer)
+        - Windows 11 (22H2 or earlier)
+        - Windows 10 (22H2)
+        - Other (please specify below)
+    validations:
+      required: true
+
+  - type: input
+    id: hotkey
+    attributes:
+      label: Configured Hotkey & Mode
+      description: What hotkey combination and mode are you using?
+      placeholder: "Alt + Left Shift (Hold mode)"
+    validations:
+      required: true
+
+  - type: input
+    id: mic
+    attributes:
+      label: Audio Device
+      description: What microphone model or audio input is active?
+      placeholder: "Realtek High Definition Audio / USB Condenser Mic"
+    validations:
+      required: false
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the Bug
+      description: A clear and concise description of what happened.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this behavior?
+      placeholder: |
+        1. Open Notepad
+        2. Hold Alt + Left Shift
+        3. Speak 'Hello world'
+        4. Release hotkey
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen instead?
+    validations:
+      required: true

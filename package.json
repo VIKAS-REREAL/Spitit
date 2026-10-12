@@ -1,7 +1,14 @@
 {
   "name": "spitit-v3",
-  "private": true,
-  "version": "0.1.0",
+  "version": "3.0.0",
+  "description": "Fast, open-source voice dictation client for Windows powered by Groq Whisper",
+  "license": "MIT",
+  "author": "Vikas Nath (REREAL)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/VIKAS-REREAL/Spitit.git"
+  },
+  "homepage": "https://spitit.in",
   "type": "module",
   "scripts": {
     "dev": "vite",
