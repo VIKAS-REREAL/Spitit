@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
-import { Hero } from './components/Hero';
-import { InteractiveDictationDemo } from './components/InteractiveDictationDemo';
+import { InteractiveHeroStudio } from './components/InteractiveHeroStudio';
 import { HowItWorks } from './components/HowItWorks';
 import { HinglishShowcase } from './components/HinglishShowcase';
 import { SpeedBenchmark } from './components/SpeedBenchmark';
@@ -48,8 +47,7 @@ export const App: React.FC = () => {
       <Navbar onOpenDoc={handleOpenDoc} />
       
       <main style={{ flex: 1 }}>
-        <Hero />
-        <InteractiveDictationDemo />
+        <InteractiveHeroStudio />
         <HowItWorks />
         <HinglishShowcase />
         <SpeedBenchmark />

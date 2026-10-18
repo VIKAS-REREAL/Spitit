@@ -3,9 +3,11 @@ import react from '@vitejs/plugin-react';
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  base: '/Spitit/',
   plugins: [react()],
   server: {
-    port: 3000,
+    port: 5173,
+    strictPort: false,
     open: false
   },
   build: {

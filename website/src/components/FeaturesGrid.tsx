@@ -40,7 +40,12 @@ export const FeaturesGrid: React.FC = () => {
       <div className="container">
         <div className="section-header">
           <span className="section-badge">Crafted for Windows</span>
-          <h2 className="section-title">Engineered Without Clutter</h2>
+          <h2 className="section-title">
+            Engineered without{' '}
+            <span style={{ fontFamily: 'var(--font-serif)', fontStyle: 'italic', fontWeight: 400, color: 'var(--accent-gold)' }}>
+              unnecessary clutter.
+            </span>
+          </h2>
           <p className="section-desc">
             No conversational AI chatbots. No meeting summaries. Just native, reliable, ultra-fast speech-to-text.
           </p>

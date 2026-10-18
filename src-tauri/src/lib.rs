@@ -24,7 +24,7 @@ use tauri::{
     Emitter, Manager, Wry,
 };
 use windows::core::PCWSTR;
-use windows::Win32::Foundation::HWND;
+use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
 };
@@ -35,7 +35,7 @@ use windows::Win32::System::Registry::{
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    BringWindowToTop, GetSystemMetrics, GetWindowLongW, SetForegroundWindow,
+    BringWindowToTop, GetCursorPos, GetSystemMetrics, GetWindowLongW, SetForegroundWindow,
     SetWindowLongW, SetWindowPos, ShowWindow, GWL_EXSTYLE, GWL_STYLE, HWND_TOPMOST,
     SM_CXSCREEN, SM_CYSCREEN, SWP_FRAMECHANGED, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE,
     SWP_NOSIZE, SW_RESTORE, SW_SHOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX,
@@ -186,6 +186,37 @@ pub unsafe fn position_pill_on_monitor(hwnd: HWND) {
     );
 }
 
+pub fn configure_tray_popup_window(window: &tauri::WebviewWindow) {
+    if let Ok(raw_hwnd) = window.hwnd() {
+        let hwnd = HWND(raw_hwnd.0 as _);
+        unsafe {
+            let style = GetWindowLongW(hwnd, GWL_STYLE);
+            SetWindowLongW(
+                hwnd,
+                GWL_STYLE,
+                style & !(WS_MAXIMIZEBOX.0 as i32) & !(WS_THICKFRAME.0 as i32),
+            );
+
+            let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+            SetWindowLongW(
+                hwnd,
+                GWL_EXSTYLE,
+                ex_style | (WS_EX_TOOLWINDOW.0 as i32),
+            );
+
+            let _ = SetWindowPos(
+                hwnd,
+                HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED | SWP_HIDEWINDOW,
+            );
+        }
+    }
+}
+
 #[tauri::command]
 fn minimize_window(app: tauri::AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
@@ -221,6 +252,14 @@ fn reset_pill_position(app: tauri::AppHandle) -> Result<(), String> {
                 position_pill_on_monitor(HWND(raw_hwnd.0 as _));
             }
         }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn start_pill_drag(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(pill_win) = app.get_webview_window("pill") {
+        let _ = pill_win.start_dragging();
     }
     Ok(())
 }
@@ -266,9 +305,8 @@ fn save_all_settings(
         _ => ActivationMode::Hold,
     };
     state.hotkey_mgr.set_mode(mode);
-    state.hotkey_mgr.update_combos(
-        &new_settings.hold_hotkey,
-        &new_settings.toggle_hotkey,
+    state.hotkey_mgr.update_preset(
+        new_settings.hotkey_preset,
         new_settings.minimum_hold_time_ms,
     );
 
@@ -284,6 +322,81 @@ fn save_all_settings(
         let _ = hi_item.set_checked(!is_en);
     }
     settings::save_settings(&new_settings)
+}
+
+#[tauri::command]
+fn get_hotkey_presets() -> Vec<hotkey::HotkeyPresetInfo> {
+    hotkey::get_presets_list()
+}
+
+#[tauri::command]
+fn set_app_language(
+    state: tauri::State<AppState>,
+    app: tauri::AppHandle,
+    language: String,
+) -> Result<(), String> {
+    *state.language.lock().unwrap() = language.clone();
+    let mut s = state.settings.lock().unwrap();
+    s.language = language.clone();
+    let _ = settings::save_settings(&s);
+    let _ = app.emit("language_changed", &language);
+    let _ = app.emit("settings_updated", &*s);
+    let tray_items = state.tray_lang_items.lock().unwrap().clone();
+    if let Some((en_item, hi_item)) = tray_items {
+        let is_en = language != "hinglish";
+        let _ = en_item.set_checked(is_en);
+        let _ = hi_item.set_checked(!is_en);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn hide_tray_popup(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(popup) = app.get_webview_window("tray_popup") {
+        let _ = popup.hide();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn show_tray_popup(app: tauri::AppHandle) -> Result<(), String> {
+    show_tray_popup_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+fn toggle_tray_popup_cmd(app: tauri::AppHandle) -> Result<(), String> {
+    toggle_tray_popup(&app);
+    Ok(())
+}
+
+#[tauri::command]
+fn exit_app() {
+    std::process::exit(0);
+}
+
+fn toggle_tray_popup(app: &tauri::AppHandle) {
+    if let Some(popup) = app.get_webview_window("tray_popup") {
+        if popup.is_visible().unwrap_or(false) {
+            let _ = popup.hide();
+        } else {
+            show_tray_popup_window(app);
+        }
+    }
+}
+
+fn show_tray_popup_window(app: &tauri::AppHandle) {
+    if let Some(popup) = app.get_webview_window("tray_popup") {
+        let mut pt = windows::Win32::Foundation::POINT { x: 0, y: 0 };
+        unsafe {
+            let _ = windows::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut pt);
+        }
+        let x = (pt.x - 220).max(10);
+        let y = (pt.y - 250).max(10);
+        let _ = popup.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+        let _ = popup.show();
+        let _ = popup.set_focus();
+    }
 }
 
 #[tauri::command]
@@ -486,8 +599,7 @@ pub fn run() {
 
     let (hotkey_mgr, rx) = HotkeyManager::new(
         initial_mode,
-        &initial_settings.hold_hotkey,
-        &initial_settings.toggle_hotkey,
+        initial_settings.hotkey_preset,
         initial_settings.minimum_hold_time_ms,
     );
     let hotkey_mgr = Arc::new(hotkey_mgr);
@@ -646,12 +758,20 @@ pub fn run() {
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
-                    if let tauri::tray::TrayIconEvent::Click {
-                        button: tauri::tray::MouseButton::Left,
-                        ..
-                    } = event
-                    {
-                        bring_main_window_to_front(tray.app_handle());
+                    match event {
+                        tauri::tray::TrayIconEvent::Click {
+                            button: tauri::tray::MouseButton::Left,
+                            button_state: tauri::tray::MouseButtonState::Up,
+                            ..
+                        }
+                        | tauri::tray::TrayIconEvent::Click {
+                            button: tauri::tray::MouseButton::Right,
+                            button_state: tauri::tray::MouseButtonState::Up,
+                            ..
+                        } => {
+                            toggle_tray_popup(tray.app_handle());
+                        }
+                        _ => {}
                     }
                 })
                 .build(app)?;
@@ -662,6 +782,11 @@ pub fn run() {
             // Configure Pill window
             if let Some(pill_win) = app.get_webview_window("pill") {
                 configure_pill_window(&pill_win);
+            }
+
+            // Configure Tray Popup window
+            if let Some(tray_win) = app.get_webview_window("tray_popup") {
+                configure_tray_popup_window(&tray_win);
             }
 
             // Event-driven decoupled hotkey worker loop
@@ -854,6 +979,7 @@ pub fn run() {
             is_autostart_enabled,
             set_autostart_enabled,
             reset_pill_position,
+            start_pill_drag,
             open_settings_window,
             minimize_window,
             toggle_maximize_window,
@@ -865,6 +991,12 @@ pub fn run() {
             clear_history,
             get_dashboard_stats,
             reset_stats,
+            get_hotkey_presets,
+            set_app_language,
+            show_tray_popup,
+            hide_tray_popup,
+            toggle_tray_popup_cmd,
+            exit_app,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

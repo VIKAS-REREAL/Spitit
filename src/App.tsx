@@ -45,12 +45,10 @@ interface AudioDeviceInfo {
   is_default: boolean;
 }
 
-interface ValidationResult {
-  tier: "blocked" | "warning" | "ok";
-  reason: string;
-}
+
 
 interface UserSettings {
+  hotkey_preset: number;
   hotkey_combo: string;
   hold_hotkey: string;
   toggle_hotkey: string;
@@ -70,7 +68,54 @@ interface UserSettings {
   onboarding_completed: boolean;
 }
 
+export interface HotkeyPreset {
+  id: number;
+  name: string;
+  description: string;
+  keysLabel: string;
+}
+
+export const HOTKEY_PRESETS: HotkeyPreset[] = [
+  {
+    id: 0,
+    name: "Alt + Space",
+    description: "SuperWhisper style — ergonomic & fast",
+    keysLabel: "Left Alt + Space",
+  },
+  {
+    id: 1,
+    name: "Alt + Left Shift",
+    description: "Spitit classic — original shortcut",
+    keysLabel: "Left Alt + Left Shift",
+  },
+  {
+    id: 2,
+    name: "Ctrl + Shift",
+    description: "Familiar modifier chord, easy muscle memory",
+    keysLabel: "Left Ctrl + Left Shift",
+  },
+  {
+    id: 3,
+    name: "Right Alt",
+    description: "Single-key toggle — one finger tap, zero chords",
+    keysLabel: "Right Alt only",
+  },
+  {
+    id: 4,
+    name: "Ctrl + Alt + Space",
+    description: "Zero conflicts across any Windows application",
+    keysLabel: "Ctrl + Alt + Space",
+  },
+  {
+    id: 5,
+    name: "Left Ctrl + Space",
+    description: "Wispr Flow style — fast and responsive",
+    keysLabel: "Left Ctrl + Space",
+  },
+];
+
 const DEFAULT_SETTINGS: UserSettings = {
+  hotkey_preset: 1,
   hotkey_combo: "alt_shift",
   hold_hotkey: "Alt+LShift",
   toggle_hotkey: "Ctrl+Space",
@@ -112,10 +157,7 @@ export default function App() {
   const [liveMicLevel, setLiveMicLevel] = useState<number>(0);
   const [isClipHistoryOn, setIsClipHistoryOn] = useState<boolean>(true);
 
-  // Hotkey recording & validation state
-  const [isRecordingCombo, setIsRecordingCombo] = useState<"hold" | "toggle" | null>(null);
-  const [recordedKeys, setRecordedKeys] = useState<string[]>([]);
-  const [validation, setValidation] = useState<ValidationResult | null>(null);
+
 
   // Onboarding wizard state (Section 4.6)
   const [showOnboarding, setShowOnboarding] = useState<boolean>(false);
@@ -270,107 +312,8 @@ export default function App() {
     }
   };
 
-  // Hotkey recording handlers
-  const startRecordingCombo = (target: "hold" | "toggle") => {
-    setIsRecordingCombo(target);
-    setRecordedKeys([]);
-    setValidation(null);
-  };
-
-  const handleKeyDownRecorder = (e: React.KeyboardEvent | KeyboardEvent) => {
-    if (!isRecordingCombo) return;
-    e.preventDefault();
-    e.stopPropagation();
-
-    const keyName = e.key;
-    if (keyName === "Escape") {
-      setIsRecordingCombo(null);
-      setRecordedKeys([]);
-      setValidation(null);
-      return;
-    }
-
-    // Handle single key hotkeys (Section 4.9: Right Alt, Right Ctrl, F1-F24, CapsLock)
-    let current: string[] = [];
-    if (e.code === "AltRight" || e.key === "AltGraph") {
-      current = ["Right Alt"];
-    } else if (e.code === "ControlRight") {
-      current = ["Right Ctrl"];
-    } else if (e.code === "ShiftRight") {
-      current = ["Right Shift"];
-    } else if (e.code === "CapsLock") {
-      current = ["CapsLock"];
-    } else if (e.code === "ScrollLock") {
-      current = ["ScrollLock"];
-    } else if (e.code === "Pause") {
-      current = ["Pause"];
-    } else if (e.code === "Insert") {
-      current = ["Insert"];
-    } else if (/^F\d+$/.test(e.code)) {
-      current = [e.code];
-    } else {
-      // Standard modifier combinations
-      if (e.altKey) current.push("Alt");
-      if (e.ctrlKey) current.push("Ctrl");
-      if (e.shiftKey) current.push("LShift");
-
-      let mainKey = e.code.replace(/^(Key|Digit)/, "");
-      if (mainKey === "Space") mainKey = "Space";
-      if (
-        !["Alt", "Control", "Shift", "Meta", "AltGraph"].includes(keyName) &&
-        !["AltLeft", "AltRight", "ControlLeft", "ControlRight", "ShiftLeft", "ShiftRight"].includes(e.code) &&
-        !current.includes(mainKey)
-      ) {
-        current.push(mainKey);
-      }
-    }
-
-    if (current.length > 0) {
-      setRecordedKeys(current);
-      const comboStr = current.join("+");
-      const other =
-        isRecordingCombo === "hold" ? settings.toggle_hotkey : settings.hold_hotkey;
-
-      invoke<ValidationResult>("validate_hotkey", {
-        combo: comboStr,
-        isHold: isRecordingCombo === "hold",
-        otherCombo: other,
-      })
-        .then((res) => setValidation(res))
-        .catch(() => {});
-    }
-  };
-
-  // Global keydown capture so clicking "Change Shortcut" immediately listens anywhere
-  useEffect(() => {
-    if (!isRecordingCombo) return;
-    const onGlobalKey = (e: KeyboardEvent) => {
-      handleKeyDownRecorder(e);
-    };
-    window.addEventListener("keydown", onGlobalKey, true);
-    return () => {
-      window.removeEventListener("keydown", onGlobalKey, true);
-    };
-  }, [isRecordingCombo, settings.hold_hotkey, settings.toggle_hotkey]);
-
-  const commitRecordedCombo = () => {
-    if (!isRecordingCombo || recordedKeys.length === 0) return;
-    if (validation && validation.tier === "blocked") return;
-
-    const comboStr = recordedKeys.join("+");
-    if (isRecordingCombo === "hold") {
-      updateSetting("hold_hotkey", comboStr);
-    } else {
-      updateSetting("toggle_hotkey", comboStr);
-    }
-    setIsRecordingCombo(null);
-    setRecordedKeys([]);
-    setValidation(null);
-  };
-
   const handleResetHotkeys = () => {
-    updateSetting("hold_hotkey", "Alt+LShift");
-    updateSetting("toggle_hotkey", "Ctrl+Space");
+    updateSetting("hotkey_preset", 1);
   };
 
   const handleCopyHistory = (item: HistoryRecord) => {
@@ -433,8 +376,10 @@ export default function App() {
     updateSetting("onboarding_completed", true);
   };
 
-  const activeHotkeyDisplay =
-    settings.mode === "hold" ? settings.hold_hotkey : settings.toggle_hotkey;
+  const currentPreset =
+    HOTKEY_PRESETS.find((p) => p.id === (settings.hotkey_preset ?? 1)) ||
+    HOTKEY_PRESETS[1];
+  const activeHotkeyDisplay = currentPreset.name;
 
   return (
     <div className="win-app" onContextMenu={(e) => e.preventDefault()}>
@@ -560,77 +505,47 @@ export default function App() {
               {onboardingStep === 3 && (
                 <div>
                   <h2 style={{ fontSize: "18px", color: "#fff", marginBottom: 6 }}>
-                    Trigger Hotkey
+                    Trigger Hotkey Preset
                   </h2>
                   <p style={{ fontSize: "13px", color: "var(--win-text-secondary)", marginBottom: 14 }}>
-                    Your active shortcut is <strong>{activeHotkeyDisplay}</strong> ({settings.mode} mode).
+                    Your active shortcut is <strong>{activeHotkeyDisplay}</strong> ({settings.mode} mode). Pick your favorite preset below:
                   </p>
                   <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
                     <button
                       className={`win-toggle-btn ${settings.mode === "hold" ? "active" : ""}`}
                       onClick={() => updateSetting("mode", "hold")}
                     >
-                      Hold Mode ({settings.hold_hotkey})
+                      Hold Mode
                     </button>
                     <button
                       className={`win-toggle-btn ${settings.mode === "toggle" ? "active" : ""}`}
                       onClick={() => updateSetting("mode", "toggle")}
                     >
-                      Toggle Mode ({settings.toggle_hotkey})
-                    </button>
-                    <button
-                      className="win-btn-secondary small"
-                      onClick={() => startRecordingCombo(settings.mode === "hold" ? "hold" : "toggle")}
-                    >
-                      {isRecordingCombo ? "Listening..." : "Change Key"}
+                      Toggle Mode
                     </button>
                   </div>
 
-                  {isRecordingCombo && (
-                    <div
-                      style={{
-                        padding: 12,
-                        borderRadius: 8,
-                        background: "rgba(255,213,5,0.06)",
-                        border: "1px dashed var(--win-accent)",
-                        marginBottom: 14,
-                      }}
-                    >
-                      <div style={{ fontSize: "12px", color: "var(--win-text-secondary)", marginBottom: 4 }}>
-                        Press your shortcut (e.g. Right Alt, Alt+LShift, Ctrl+Space):
-                      </div>
-                      <div style={{ fontSize: "16px", fontWeight: 700, color: "#fff", marginBottom: 6 }}>
-                        {recordedKeys.length > 0 ? recordedKeys.join(" + ") : "Listening for keys..."}
-                      </div>
-
-                      {validation && (
-                        <div className={`win-validation-box ${validation.tier}`} style={{ marginBottom: 8 }}>
-                          <span>
-                            {validation.tier === "blocked" && "⛔ Blocked: "}
-                            {validation.tier === "warning" && "⚠️ Warning: "}
-                            {validation.tier === "ok" && "✓ OK: "}
-                            {validation.reason}
-                          </span>
+                  <div className="win-presets-grid" style={{ marginBottom: 14 }}>
+                    {HOTKEY_PRESETS.map((preset) => {
+                      const isSelected = (settings.hotkey_preset ?? 1) === preset.id;
+                      return (
+                        <div
+                          key={preset.id}
+                          className={`win-preset-card ${isSelected ? "selected" : ""}`}
+                          onClick={() => updateSetting("hotkey_preset", preset.id)}
+                        >
+                          <div className="win-preset-header">
+                            <div className="win-preset-radio">
+                              <div className={`radio-dot ${isSelected ? "active" : ""}`} />
+                            </div>
+                            <span className="win-preset-name">{preset.name}</span>
+                            <span className="win-preset-badge">{preset.keysLabel}</span>
+                          </div>
+                          <div className="win-preset-desc">{preset.description}</div>
                         </div>
-                      )}
-
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <button
-                          className="win-btn-primary small"
-                          disabled={!validation || validation.tier === "blocked"}
-                          onClick={commitRecordedCombo}
-                        >
-                          Save Shortcut
-                        </button>
-                        <button
-                          className="win-btn-secondary small"
-                          onClick={() => setIsRecordingCombo(null)}
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                      );
+                    })}
+                  </div>
 
                   <div style={{ padding: 12, borderRadius: 8, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
                     <span style={{ fontSize: "12px", color: "var(--win-text-secondary)" }}>
@@ -1214,142 +1129,36 @@ export default function App() {
 
                 <div className="win-divider" />
 
-                {/* Hold Mode Combo Config */}
+                {/* Hotkey Preset Config */}
                 <div className="win-card-row vertical">
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div>
-                      <h3 className="win-card-title">Hold Mode Shortcut</h3>
-                      <p className="win-card-desc">Used when Activation Mode is set to Hold.</p>
-                    </div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <span className="win-shortcut-badge">{settings.hold_hotkey}</span>
-                      <button
-                        className="win-btn-secondary small"
-                        onClick={() => startRecordingCombo("hold")}
-                      >
-                        {isRecordingCombo === "hold" ? "Recording..." : "Change Shortcut"}
-                      </button>
-                    </div>
+                  <div>
+                    <h3 className="win-card-title">Hotkey Preset</h3>
+                    <p className="win-card-desc">
+                      Select one of 6 curated, conflict-free shortcuts tested across Windows. The selected preset works in both Hold and Toggle mode.
+                    </p>
                   </div>
 
-                  {isRecordingCombo === "hold" && (
-                    <div
-                      tabIndex={0}
-                      onKeyDown={handleKeyDownRecorder}
-                      style={{
-                        padding: 14,
-                        borderRadius: 8,
-                        background: "rgba(255,213,5,0.06)",
-                        border: "1px dashed var(--win-accent)",
-                        outline: "none",
-                        marginTop: 10,
-                      }}
-                    >
-                      <div style={{ fontSize: "12px", color: "var(--win-text-secondary)", marginBottom: 6 }}>
-                        Press your shortcut combination (e.g. Alt+LShift, Ctrl+Space, RightAlt):
-                      </div>
-                      <div style={{ fontSize: "16px", fontWeight: 700, color: "#fff", marginBottom: 6 }}>
-                        {recordedKeys.length > 0 ? recordedKeys.join(" + ") : "Listening for keys..."}
-                      </div>
-
-                      {validation && (
-                        <div className={`win-validation-box ${validation.tier}`}>
-                          <span>
-                            {validation.tier === "blocked" && "⛔ Blocked: "}
-                            {validation.tier === "warning" && "⚠️ Warning: "}
-                            {validation.tier === "ok" && "✓ OK: "}
-                            {validation.reason}
-                          </span>
+                  <div className="win-presets-grid">
+                    {HOTKEY_PRESETS.map((preset) => {
+                      const isSelected = (settings.hotkey_preset ?? 1) === preset.id;
+                      return (
+                        <div
+                          key={preset.id}
+                          className={`win-preset-card ${isSelected ? "selected" : ""}`}
+                          onClick={() => updateSetting("hotkey_preset", preset.id)}
+                        >
+                          <div className="win-preset-header">
+                            <div className="win-preset-radio">
+                              <div className={`radio-dot ${isSelected ? "active" : ""}`} />
+                            </div>
+                            <span className="win-preset-name">{preset.name}</span>
+                            <span className="win-preset-badge">{preset.keysLabel}</span>
+                          </div>
+                          <div className="win-preset-desc">{preset.description}</div>
                         </div>
-                      )}
-
-                      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                        <button
-                          className="win-btn-primary small"
-                          disabled={!validation || validation.tier === "blocked"}
-                          onClick={commitRecordedCombo}
-                        >
-                          Save Shortcut
-                        </button>
-                        <button
-                          className="win-btn-secondary small"
-                          onClick={() => setIsRecordingCombo(null)}
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="win-divider" />
-
-                {/* Toggle Mode Combo Config */}
-                <div className="win-card-row vertical">
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div>
-                      <h3 className="win-card-title">Toggle Mode Shortcut</h3>
-                      <p className="win-card-desc">Used when Activation Mode is set to Toggle.</p>
-                    </div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <span className="win-shortcut-badge">{settings.toggle_hotkey}</span>
-                      <button
-                        className="win-btn-secondary small"
-                        onClick={() => startRecordingCombo("toggle")}
-                      >
-                        {isRecordingCombo === "toggle" ? "Recording..." : "Change Shortcut"}
-                      </button>
-                    </div>
+                      );
+                    })}
                   </div>
-
-                  {isRecordingCombo === "toggle" && (
-                    <div
-                      tabIndex={0}
-                      onKeyDown={handleKeyDownRecorder}
-                      style={{
-                        padding: 14,
-                        borderRadius: 8,
-                        background: "rgba(255,213,5,0.06)",
-                        border: "1px dashed var(--win-accent)",
-                        outline: "none",
-                        marginTop: 10,
-                      }}
-                    >
-                      <div style={{ fontSize: "12px", color: "var(--win-text-secondary)", marginBottom: 6 }}>
-                        Press your shortcut combination:
-                      </div>
-                      <div style={{ fontSize: "16px", fontWeight: 700, color: "#fff", marginBottom: 6 }}>
-                        {recordedKeys.length > 0 ? recordedKeys.join(" + ") : "Listening for keys..."}
-                      </div>
-
-                      {validation && (
-                        <div className={`win-validation-box ${validation.tier}`}>
-                          <span>
-                            {validation.tier === "blocked" && "⛔ Blocked: "}
-                            {validation.tier === "warning" && "⚠️ Warning: "}
-                            {validation.tier === "ok" && "✓ OK: "}
-                            {validation.reason}
-                          </span>
-                        </div>
-                      )}
-
-                      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                        <button
-                          className="win-btn-primary small"
-                          disabled={!validation || validation.tier === "blocked"}
-                          onClick={commitRecordedCombo}
-                        >
-                          Save Shortcut
-                        </button>
-                        <button
-                          className="win-btn-secondary small"
-                          onClick={() => setIsRecordingCombo(null)}
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  )}
                 </div>
 
                 <div className="win-divider" />

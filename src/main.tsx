@@ -3,20 +3,24 @@ import ReactDOM from "react-dom/client";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import App from "./App";
 import PillWindow from "./PillWindow";
+import TrayPopupWindow from "./TrayPopupWindow";
 
-// Determine if this window instance is the signature Pill window
-let isPill = false;
+// Determine which window instance this webview is rendering
+let windowLabel = "main";
 try {
-  isPill = getCurrentWebviewWindow().label === "pill";
+  windowLabel = getCurrentWebviewWindow().label;
 } catch {
-  isPill = false;
+  windowLabel = "main";
 }
+
+const isPill = windowLabel === "pill";
+const isTrayPopup = windowLabel === "tray_popup";
 
 // Disable default right-click browser context menu globally
 window.addEventListener("contextmenu", (e) => e.preventDefault());
 
-if (isPill) {
-  // Ensure transparent background for pill window body
+if (isPill || isTrayPopup) {
+  // Ensure transparent background for floating overlay windows
   document.documentElement.style.background = "transparent";
   document.body.style.background = "transparent";
   document.body.style.overflow = "hidden";
@@ -24,6 +28,12 @@ if (isPill) {
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    {isPill ? <PillWindow /> : <App />}
+    {isPill ? (
+      <PillWindow />
+    ) : isTrayPopup ? (
+      <TrayPopupWindow />
+    ) : (
+      <App />
+    )}
   </React.StrictMode>,
 );

@@ -14,7 +14,12 @@ export const PrivacyDiagram: React.FC<PrivacyDiagramProps> = ({ onOpenPrivacyDoc
           <span className="section-badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
             <Lock size={14} /> Radical Transparency
           </span>
-          <h2 className="section-title">What Goes Where (And What Doesn&apos;t)</h2>
+          <h2 className="section-title">
+            What goes where,{' '}
+            <span style={{ fontFamily: 'var(--font-serif)', fontStyle: 'italic', fontWeight: 400, color: 'var(--accent-gold)' }}>
+              and what never leaves.
+            </span>
+          </h2>
           <p className="section-desc">
             We don&apos;t claim &ldquo;100% offline&rdquo; while secretly streaming audio to our servers. Here is the honest, architectural truth of every byte in Spitit.
           </p>

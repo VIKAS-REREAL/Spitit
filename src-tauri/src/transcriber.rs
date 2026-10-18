@@ -6,33 +6,41 @@ use reqwest::multipart::{Form, Part};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-// Restored to turbo per section 3.6
-pub const MODEL_WHISPER: &str = "whisper-large-v3-turbo";
-pub const MODEL_LLM: &str = "llama-3.1-8b-instant";
+pub const MODEL_WHISPER: &str = "whisper-large-v3";
+pub const MODEL_LLM_PRIMARY: &str = "llama-3.3-70b-versatile";
+pub const MODEL_LLM_FALLBACK: &str = "llama-3.1-8b-instant";
+
+pub const ENGLISH_WHISPER_PROMPT: &str = "\
+Dictation in clear English and Indian English. Clean spelling, proper punctuation, technical terms, everyday expressions, and natural phrasing.";
 
 pub const HINGLISH_WHISPER_PROMPT: &str = "\
 Transcribe Indian English and Hinglish in Roman/English script only (NOT Devanagari). \
 Haan bhai, kal subah meeting hai toh sab prepare karke ready rakhna. \
 Main thodi der mein call karta hoon, don't worry everything is working smoothly. \
-Please check the document and update me on Slack. Kya chal raha hai?";
+Please check the document and update me on Slack. Kya chal raha hai? \
+Woh cheez kaam kar rahi hai, mujhe pata hai.";
 
 pub const HINGLISH_SYSTEM_PROMPT: &str = "\
-You are an expert Hinglish (Hindi + English) text converter for Indian users.
-The input is speech-to-text transcript from an Indian speaker speaking Hinglish (Hindi words naturally mixed with English).
+You are an expert speech-to-text normalizer for Indian English and Hinglish (Hindi + English) users.
+The user's speech was transcribed by a speech recognition model, which frequently introduces phonetic typos, misheard words, and weird spelling for Indian expressions.
 
 CRITICAL RULES:
-1. Always write Hindi words in Roman / Latin script (English alphabet), NEVER in Devanagari script (Hindi characters). If input contains any Devanagari characters (like हिन्दी), convert them to Roman transliteration.
-   Examples:
-   - 'हाँ भाई क्या हाल है' -> 'haan bhai kya haal hai'
-   - 'कल मिलते हैं' -> 'kal milte hain'
-   - 'काम हो गया' -> 'kaam ho gaya'
-   - 'main kal office jaaunga' -> 'main kal office jaaunga'
-2. Keep all English words in standard English (e.g. 'meeting', 'project', 'presentation', 'call', 'check', 'send').
-3. Do NOT translate Hindi words into English.
-4. Do NOT translate English words into Hindi.
-5. Preserve the exact words and meaning spoken by the user.
-6. Fix phonetic speech-to-text typos in Hindi/English words (e.g. 'kya seen hai' -> 'kya scene hai').
-7. Output ONLY the clean Hinglish text in Roman script. No explanations, no quotes, no extra conversational text.";
+1. Fix all speech-to-text phonetic mishearings and typos into natural, correct words.
+   Examples of mishearings to fix:
+   - 'woha chis kama nahi kar raha' / 'woha chis' -> 'woh cheez kaam nahi kar raha' / 'woh cheez'
+   - 'Main ko nahi pata kiyo' -> 'Mujhe nahi pata kyu'
+   - 'jab chote audio hootethe, tab hii kama karta hai' -> 'jab chhote audio hote the, tab hi kaam karta hai'
+   - 'Jaysse agar ma bhoat bada audio ik bana dhu' -> 'Jaise agar main bohot bada audio ek bana doon'
+   - 'çarhi raman ga dhu' / 'çari' -> 'saari baatein bol doon' / 'saari command daal doon'
+   - 'naihi' / 'nahi kar pa raha' -> 'nahi kar pa raha'
+   - 'kya seen hai' -> 'kya scene hai'
+   - 'jho' -> 'jo'
+2. Always write Hindi words in clean Roman/Latin script (English alphabet), NEVER in Devanagari script.
+   If input contains any Devanagari characters, convert them to natural Roman script.
+3. Keep all English words in standard English (e.g. 'audio', 'feature', 'English', 'meeting', 'project', 'presentation', 'call', 'check', 'send').
+4. Do NOT translate Hindi words into English, and do NOT translate English words into Hindi. Preserve the user's natural mixing and intent.
+5. Fix punctuation, capitalization, and sentence boundaries.
+6. Output ONLY the cleaned, natural transcript text. NEVER include commentary, markdown quotes, notes, or explanations.";
 
 pub const MIXED_HI_EN_PROMPT: &str = "\
 The speaker switches between Hindi and English. \
@@ -104,7 +112,7 @@ pub async fn transcribe(
     }
 
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(20))
+        .timeout(std::time::Duration::from_secs(90))
         .build()
         .map_err(|e| format!("ERR_NETWORK: Client error: {e}"))?;
 
@@ -122,7 +130,7 @@ pub async fn transcribe(
     // Apply language-specific configuration
     match language {
         "en" => {
-            form = form.text("language", "en");
+            form = form.text("language", "en").text("prompt", ENGLISH_WHISPER_PROMPT);
         }
         "hi" => {
             form = form.text("language", "hi");
@@ -193,40 +201,41 @@ pub async fn transcribe(
         return Err("ERR_NO_SPEECH: We couldn't hear you. No speech was detected.".into());
     }
 
-    // Hinglish post-processing through Groq LLM
-    if language == "hinglish" {
+    // Hinglish post-processing through Groq LLM: runs for hinglish mode or if Devanagari script is detected
+    let has_devanagari = raw_text.chars().any(|c| ('\u{0900}'..='\u{097F}').contains(&c));
+    if language == "hinglish" || has_devanagari {
         raw_text = hinglish_cleanup(&client, trimmed_key, &raw_text).await;
     }
 
     Ok(raw_text)
 }
 
-/// Post-process Hinglish transcription through Groq LLM (llama-3.1-8b-instant).
+/// Post-process Hinglish transcription through Groq LLM (llama-3.3-70b-versatile with llama-3.1-8b fallback).
 pub async fn hinglish_cleanup(client: &reqwest::Client, api_key: &str, raw_text: &str) -> String {
-    let payload = ChatCompletionRequest {
-        model: MODEL_LLM.to_string(),
-        messages: vec![
-            ChatMessage {
-                role: "system".to_string(),
-                content: HINGLISH_SYSTEM_PROMPT.to_string(),
-            },
-            ChatMessage {
-                role: "user".to_string(),
-                content: raw_text.to_string(),
-            },
-        ],
-        temperature: 0.05,
-        max_tokens: 1024,
-    };
+    for model_name in [MODEL_LLM_PRIMARY, MODEL_LLM_FALLBACK] {
+        let payload = ChatCompletionRequest {
+            model: model_name.to_string(),
+            messages: vec![
+                ChatMessage {
+                    role: "system".to_string(),
+                    content: HINGLISH_SYSTEM_PROMPT.to_string(),
+                },
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: raw_text.to_string(),
+                },
+            ],
+            temperature: 0.05,
+            max_tokens: 1024,
+        };
 
-    match client
-        .post("https://api.groq.com/openai/v1/chat/completions")
-        .bearer_auth(api_key.trim())
-        .json(&payload)
-        .send()
-        .await
-    {
-        Ok(resp) => {
+        if let Ok(resp) = client
+            .post("https://api.groq.com/openai/v1/chat/completions")
+            .bearer_auth(api_key.trim())
+            .json(&payload)
+            .send()
+            .await
+        {
             if resp.status().is_success() {
                 if let Ok(body) = resp.json::<ChatCompletionResponse>().await {
                     if let Some(choice) = body.choices.first() {
@@ -240,15 +249,11 @@ pub async fn hinglish_cleanup(client: &reqwest::Client, api_key: &str, raw_text:
             } else {
                 let status = resp.status();
                 let err = resp.text().await.unwrap_or_default();
-                eprintln!("[Spitit Hinglish LLM] HTTP {status}: {err}");
+                eprintln!("[Spitit Hinglish LLM {model_name}] HTTP {status}: {err}");
             }
-            raw_text.to_string()
-        }
-        Err(e) => {
-            eprintln!("[Spitit Hinglish LLM Network Error] {e}");
-            raw_text.to_string()
         }
     }
+    raw_text.to_string()
 }
 
 /// Test connection to Groq API.

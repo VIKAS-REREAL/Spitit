@@ -202,14 +202,18 @@ export default function PillWindow() {
     };
   }, []);
 
-  // Section 2.2: Controlled mouse drag — only on single click, never stuck
+  // Section 2.2: Controlled mouse drag — native and Tauri window drag
   const handleMouseDown = async (e: React.MouseEvent) => {
-    if (e.button === 0 && e.detail === 1) {
+    if (e.button === 0) {
       try {
-        const appWindow = getCurrentWebviewWindow();
-        await appWindow.startDragging();
-      } catch (err) {
-        console.error("Window drag error:", err);
+        await invoke("start_pill_drag");
+      } catch {
+        try {
+          const appWindow = getCurrentWebviewWindow();
+          await appWindow.startDragging();
+        } catch (err) {
+          console.error("Window drag error:", err);
+        }
       }
     }
   };

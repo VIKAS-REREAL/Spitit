@@ -60,7 +60,12 @@ export const HinglishShowcase: React.FC = () => {
           <span className="section-badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
             <Sparkles size={14} /> Intelligent Transliteration
           </span>
-          <h2 className="section-title">Built for Modern Bilingual Speech</h2>
+          <h2 className="section-title">
+            Built for modern{' '}
+            <span style={{ fontFamily: 'var(--font-serif)', fontStyle: 'italic', fontWeight: 400, color: 'var(--accent-gold)' }}>
+              bilingual speech.
+            </span>
+          </h2>
           <p className="section-desc">
             Most voice tools mangle casual Hinglish or force it into Devanagari script. Spitit cleans messy conversational speech into polished Roman transliteration.
           </p>

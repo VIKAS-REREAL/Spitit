@@ -48,12 +48,14 @@ struct CacheEntry {
 
 pub struct AppTracker {
     cache: Arc<Mutex<HashMap<String, CacheEntry>>>,
+    last_valid_app: Arc<Mutex<Option<AppInfo>>>,
 }
 
 impl AppTracker {
     pub fn new() -> Self {
         Self {
             cache: Arc::new(Mutex::new(HashMap::new())),
+            last_valid_app: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -61,13 +63,23 @@ impl AppTracker {
         unsafe {
             let hwnd = GetForegroundWindow();
             if hwnd.0.is_null() {
-                return fallback_app_info();
+                return self.last_valid_app.lock().unwrap().clone().unwrap_or_else(fallback_app_info);
             }
-            self.resolve_app_for_hwnd(hwnd)
+            if let Some(app) = self.resolve_app_for_hwnd_checked(hwnd) {
+                app
+            } else {
+                self.last_valid_app.lock().unwrap().clone().unwrap_or_else(fallback_app_info)
+            }
         }
     }
 
+    #[allow(dead_code)]
     pub fn resolve_app_for_hwnd(&self, hwnd: HWND) -> AppInfo {
+        self.resolve_app_for_hwnd_checked(hwnd)
+            .unwrap_or_else(|| self.last_valid_app.lock().unwrap().clone().unwrap_or_else(fallback_app_info))
+    }
+
+    pub fn resolve_app_for_hwnd_checked(&self, hwnd: HWND) -> Option<AppInfo> {
         unsafe {
             let mut title_buf = [0u16; 512];
             let title_len = GetWindowTextW(hwnd, &mut title_buf);
@@ -82,13 +94,13 @@ impl AppTracker {
 
             let mut pid = 0u32;
             GetWindowThreadProcessId(target_hwnd, Some(&mut pid));
-            if pid == 0 {
-                return fallback_app_info_with_hwnd(hwnd.0 as isize);
+            if pid == 0 || pid == std::process::id() {
+                return None;
             }
 
             let process_handle = match OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
                 Ok(h) => h,
-                Err(_) => return fallback_app_info_with_hwnd(hwnd.0 as isize),
+                Err(_) => return None,
             };
 
             let mut path_buf = [0u16; 1024];
@@ -102,10 +114,16 @@ impl AppTracker {
             let _ = CloseHandle(process_handle);
 
             if query_res.is_err() || size == 0 {
-                return fallback_app_info_with_hwnd(hwnd.0 as isize);
+                return None;
             }
 
             let exe_path = String::from_utf16_lossy(&path_buf[..size as usize]);
+
+            // Filter out transient shell/desktop/taskbar windows so switching windows never glitches
+            if is_transient_or_shell_window(hwnd, &exe_path) {
+                return None;
+            }
+
             let stem = Path::new(&exe_path)
                 .file_stem()
                 .and_then(|s| s.to_str())
@@ -119,6 +137,12 @@ impl AppTracker {
 
             if stem_lower.contains("whatsapp") || title_lower.contains("whatsapp") {
                 display_name = "WhatsApp".to_string();
+            } else if stem_lower == "explorer" {
+                if !window_title.is_empty() && window_title != "File Explorer" {
+                    display_name = window_title.clone();
+                } else {
+                    display_name = "File Explorer".to_string();
+                }
             } else if stem_lower == "applicationframehost" {
                 if !window_title.is_empty() {
                     display_name = window_title.split('-').next().unwrap_or(&window_title).trim().to_string();
@@ -204,12 +228,15 @@ impl AppTracker {
                 }
             };
 
-            AppInfo {
+            let app_info = AppInfo {
                 name: display_name,
                 exe_path,
                 icon_data_url,
                 hwnd: hwnd.0 as isize,
-            }
+            };
+
+            *self.last_valid_app.lock().unwrap() = Some(app_info.clone());
+            Some(app_info)
         }
     }
 }
@@ -223,6 +250,7 @@ fn fallback_app_info() -> AppInfo {
     }
 }
 
+#[allow(dead_code)]
 fn fallback_app_info_with_hwnd(hwnd: isize) -> AppInfo {
     AppInfo {
         name: "Active App".to_string(),
@@ -230,6 +258,49 @@ fn fallback_app_info_with_hwnd(hwnd: isize) -> AppInfo {
         icon_data_url: None,
         hwnd,
     }
+}
+
+/// Checks whether a window belongs to transient Windows shell elements (Taskbar, Desktop, Alt-Tab switcher)
+/// or Spitit's own processes so they are never erroneously registered as target user applications.
+unsafe fn is_transient_or_shell_window(hwnd: HWND, exe_path: &str) -> bool {
+    let mut pid = 0u32;
+    GetWindowThreadProcessId(hwnd, Some(&mut pid));
+    if pid == std::process::id() {
+        return true;
+    }
+
+    let mut class_buf = [0u16; 128];
+    let class_len = windows::Win32::UI::WindowsAndMessaging::GetClassNameW(hwnd, &mut class_buf);
+    let class_name = if class_len > 0 {
+        String::from_utf16_lossy(&class_buf[..class_len as usize])
+    } else {
+        String::new()
+    };
+
+    let lower_exe = exe_path.to_lowercase();
+    let is_explorer = lower_exe.ends_with("explorer.exe") || lower_exe == "explorer";
+
+    if is_explorer {
+        // CabinetWClass and ExploreWClass are actual folder browsing windows
+        if class_name == "CabinetWClass" || class_name == "ExploreWClass" {
+            return false;
+        }
+        // All other explorer windows (Desktop, Taskbar, Alt-Tab switcher, Start menu) are transient shell
+        return true;
+    }
+
+    if class_name == "Progman"
+        || class_name == "WorkerW"
+        || class_name == "Shell_TrayWnd"
+        || class_name == "Shell_SecondaryTrayWnd"
+        || class_name == "MultitaskingViewFrame"
+        || class_name == "TaskSwitcherWnd"
+        || class_name == "XamlExplorerHostIslandWindow"
+    {
+        return true;
+    }
+
+    false
 }
 
 /// For UWP apps, ApplicationFrameHost hosts the window. Find the child Windows.UI.Core.CoreWindow.
@@ -482,20 +553,38 @@ fn base64_encode(data: &[u8]) -> String {
 use tauri::Emitter;
 
 struct TrackerState {
-    handle: tauri::AppHandle,
-    tracker: Arc<AppTracker>,
+    event_tx: std::sync::mpsc::Sender<usize>,
 }
 
 static TRACKER_STATE: Mutex<Option<TrackerState>> = Mutex::new(None);
 
 pub fn start_tracking(handle: tauri::AppHandle, tracker: Arc<AppTracker>) {
+    let (tx, rx) = std::sync::mpsc::channel::<usize>();
     {
         let mut state = TRACKER_STATE.lock().unwrap();
         *state = Some(TrackerState {
-            handle,
-            tracker,
+            event_tx: tx,
         });
     }
+
+    // Dedicated single background worker:
+    // Guarantees FIFO order, drains intermediate Alt-Tab hops, and never drops foreground switches.
+    let tracker_worker = tracker.clone();
+    let handle_worker = handle.clone();
+    std::thread::spawn(move || {
+        while let Ok(hwnd_val) = rx.recv() {
+            // Drain any pending rapid events (e.g. fast Alt-Tab or transient shell hops)
+            let mut latest_hwnd_val = hwnd_val;
+            while let Ok(newer) = rx.try_recv() {
+                latest_hwnd_val = newer;
+            }
+
+            let hwnd = HWND(latest_hwnd_val as *mut _);
+            if let Some(app_info) = tracker_worker.resolve_app_for_hwnd_checked(hwnd) {
+                let _ = handle_worker.emit("foreground_app_changed", &app_info);
+            }
+        }
+    });
 
     std::thread::spawn(|| {
         unsafe {
@@ -535,17 +624,9 @@ unsafe extern "system" fn win_event_hook_callback(
     _dwms_event_time: u32,
 ) {
     if event == EVENT_SYSTEM_FOREGROUND && !hwnd.0.is_null() {
-        if let Ok(lock) = TRACKER_STATE.try_lock() {
+        if let Ok(lock) = TRACKER_STATE.lock() {
             if let Some(state) = lock.as_ref() {
-                let tracker = state.tracker.clone();
-                let handle = state.handle.clone();
-                let hwnd_val = hwnd.0 as usize;
-                // Spawn lightweight background task so hook callback is non-blocking
-                std::thread::spawn(move || {
-                    let hwnd = HWND(hwnd_val as *mut _);
-                    let app_info = tracker.resolve_app_for_hwnd(hwnd);
-                    let _ = handle.emit("foreground_app_changed", &app_info);
-                });
+                let _ = state.event_tx.send(hwnd.0 as usize);
             }
         }
     }

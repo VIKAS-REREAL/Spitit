@@ -31,7 +31,12 @@ npm run tauri build`;
           <span className="section-badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
             <Code2 size={14} /> Community & Trust
           </span>
-          <h2 className="section-title">Proudly Open Source</h2>
+          <h2 className="section-title">
+            Proudly{' '}
+            <span style={{ fontFamily: 'var(--font-serif)', fontStyle: 'italic', fontWeight: 400, color: 'var(--accent-gold)' }}>
+              open source.
+            </span>
+          </h2>
           <p className="section-desc">
             Spitit is licensed under the permissive MIT License. Full transparency, reproducible builds, and community-driven development.
           </p>

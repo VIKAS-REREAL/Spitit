@@ -71,7 +71,12 @@ export const FaqSection: React.FC = () => {
           <span className="section-badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
             <HelpCircle size={14} /> Clear Answers
           </span>
-          <h2 className="section-title">Frequently Asked Questions</h2>
+          <h2 className="section-title">
+            Frequently asked{' '}
+            <span style={{ fontFamily: 'var(--font-serif)', fontStyle: 'italic', fontWeight: 400, color: 'var(--accent-gold)' }}>
+              questions.
+            </span>
+          </h2>
           <p className="section-desc">
             Direct, candid answers about privacy, mechanics, keys, and licensing.
           </p>

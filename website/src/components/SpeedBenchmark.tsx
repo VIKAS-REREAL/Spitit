@@ -9,7 +9,12 @@ export const SpeedBenchmark: React.FC = () => {
           <span className="section-badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
             <Zap size={14} /> Measured Performance
           </span>
-          <h2 className="section-title">Why It Feels Instant</h2>
+          <h2 className="section-title">
+            Engineered to feel{' '}
+            <span style={{ fontFamily: 'var(--font-serif)', fontStyle: 'italic', fontWeight: 400, color: 'var(--accent-gold)' }}>
+              instantaneous.
+            </span>
+          </h2>
           <p className="section-desc">
             No marketing exaggerations. Real architectural latency breakdown from keypress to text paste.
           </p>

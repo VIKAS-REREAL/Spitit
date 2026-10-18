@@ -8,7 +8,12 @@ export const SetupGuide: React.FC = () => {
       <div className="container">
         <div className="section-header">
           <span className="section-badge">Fast Onboarding</span>
-          <h2 className="section-title">Setup in Under 3 Minutes</h2>
+          <h2 className="section-title">
+            Setup in under{' '}
+            <span style={{ fontFamily: 'var(--font-serif)', fontStyle: 'italic', fontWeight: 400, color: 'var(--accent-gold)' }}>
+              three minutes.
+            </span>
+          </h2>
           <p className="section-desc">
             Bring your own key in 3 easy steps. No subscriptions or credit cards required.
           </p>

@@ -100,6 +100,7 @@ export const Pill: React.FC<PillProps> = ({
   return (
     <div
       className="pill-container"
+      data-tauri-drag-region="true"
       onMouseDown={onMouseDownDrag}
       onDoubleClick={(e) => {
         e.preventDefault();
@@ -109,6 +110,7 @@ export const Pill: React.FC<PillProps> = ({
     >
       <div
         className={`pill-capsule ${state} ${beamClass}`}
+        data-tauri-drag-region="true"
         onClick={state === "error" ? onClickError : undefined}
       >
         {/* Rotating Light Beam Container (Section 4.1) */}

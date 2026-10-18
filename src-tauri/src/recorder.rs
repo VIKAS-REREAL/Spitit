@@ -22,7 +22,7 @@ pub const TARGET_SAMPLE_RATE: u32 = 16000;
 pub const MIN_DURATION_SECS: f32 = 0.25;
 pub const MAX_DURATION_SECS: f32 = 90.0;
 pub const COUNTDOWN_THRESHOLD_SECS: f32 = 80.0;
-pub const DEFAULT_SILENCE_THRESHOLD: f32 = 0.0015;
+pub const DEFAULT_SILENCE_THRESHOLD: f32 = 0.0008;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioDeviceInfo {
@@ -285,51 +285,119 @@ fn run_audio_worker<FLevel, FCountdown, FAutoStop>(
 
                 let err_fn = |err| eprintln!("[Spitit Audio Stream Error] {err}");
 
-                let stream_res = match config.sample_format() {
-                    cpal::SampleFormat::F32 => device.build_input_stream(
-                        &config.into(),
-                        move |data: &[f32], _: &_| {
-                            if !rec_flag_clone.load(Ordering::SeqCst) {
-                                return;
-                            }
-                            let mut buf = buf_clone.lock().unwrap();
-                            for frame in data.chunks(channels) {
-                                let sum: f32 = frame.iter().copied().sum();
-                                let mono = sum / channels as f32;
-                                let sample_i16 = (mono.clamp(-1.0, 1.0) * 32767.0) as i16;
-                                buf.push(sample_i16);
-                            }
-                            counter_clone.fetch_add(data.len() / channels, Ordering::Relaxed);
-                        },
-                        err_fn,
-                        None,
-                    ),
-                    cpal::SampleFormat::I16 => device.build_input_stream(
-                        &config.into(),
-                        move |data: &[i16], _: &_| {
-                            if !rec_flag_clone.load(Ordering::SeqCst) {
-                                return;
-                            }
-                            let mut buf = buf_clone.lock().unwrap();
-                            for frame in data.chunks(channels) {
-                                let sum: i32 = frame.iter().map(|&s| s as i32).sum();
-                                let mono = (sum / channels as i32) as i16;
-                                buf.push(mono);
-                            }
-                            counter_clone.fetch_add(data.len() / channels, Ordering::Relaxed);
-                        },
-                        err_fn,
-                        None,
-                    ),
+                let mut stream_res = match config.sample_format() {
+                    cpal::SampleFormat::F32 => {
+                        let b = Arc::clone(&buf_clone);
+                        let rf = Arc::clone(&rec_flag_clone);
+                        let sc = Arc::clone(&counter_clone);
+                        device.build_input_stream(
+                            &config.clone().into(),
+                            move |data: &[f32], _: &_| {
+                                if !rf.load(Ordering::SeqCst) {
+                                    return;
+                                }
+                                let mut buf = b.lock().unwrap();
+                                for frame in data.chunks(channels) {
+                                    let sum: f32 = frame.iter().copied().sum();
+                                    let mono = sum / channels as f32;
+                                    let sample_i16 = (mono.clamp(-1.0, 1.0) * 32767.0) as i16;
+                                    buf.push(sample_i16);
+                                }
+                                sc.fetch_add(data.len() / channels, Ordering::Relaxed);
+                            },
+                            err_fn,
+                            None,
+                        )
+                    }
+                    cpal::SampleFormat::I16 => {
+                        let b = Arc::clone(&buf_clone);
+                        let rf = Arc::clone(&rec_flag_clone);
+                        let sc = Arc::clone(&counter_clone);
+                        device.build_input_stream(
+                            &config.clone().into(),
+                            move |data: &[i16], _: &_| {
+                                if !rf.load(Ordering::SeqCst) {
+                                    return;
+                                }
+                                let mut buf = b.lock().unwrap();
+                                for frame in data.chunks(channels) {
+                                    let sum: i32 = frame.iter().map(|&s| s as i32).sum();
+                                    let mono = (sum / channels as i32) as i16;
+                                    buf.push(mono);
+                                }
+                                sc.fetch_add(data.len() / channels, Ordering::Relaxed);
+                            },
+                            err_fn,
+                            None,
+                        )
+                    }
                     _ => {
                         let _ = reply.send(Err("ERR_AUDIO_FORMAT: Unsupported microphone sample format.".into()));
                         continue;
                     }
                 };
 
+                // WASAPI retry resilience: if previous session was just closed (rapid tap), retry after brief settle
+                if stream_res.is_err() {
+                    thread::sleep(Duration::from_millis(45));
+                    stream_res = match config.sample_format() {
+                        cpal::SampleFormat::F32 => {
+                            let b = Arc::clone(&buf_clone);
+                            let rf = Arc::clone(&rec_flag_clone);
+                            let sc = Arc::clone(&counter_clone);
+                            device.build_input_stream(
+                                &config.clone().into(),
+                                move |data: &[f32], _: &_| {
+                                    if !rf.load(Ordering::SeqCst) {
+                                        return;
+                                    }
+                                    let mut buf = b.lock().unwrap();
+                                    for frame in data.chunks(channels) {
+                                        let sum: f32 = frame.iter().copied().sum();
+                                        let mono = sum / channels as f32;
+                                        let sample_i16 = (mono.clamp(-1.0, 1.0) * 32767.0) as i16;
+                                        buf.push(sample_i16);
+                                    }
+                                    sc.fetch_add(data.len() / channels, Ordering::Relaxed);
+                                },
+                                err_fn,
+                                None,
+                            )
+                        }
+                        cpal::SampleFormat::I16 => {
+                            let b = Arc::clone(&buf_clone);
+                            let rf = Arc::clone(&rec_flag_clone);
+                            let sc = Arc::clone(&counter_clone);
+                            device.build_input_stream(
+                                &config.clone().into(),
+                                move |data: &[i16], _: &_| {
+                                    if !rf.load(Ordering::SeqCst) {
+                                        return;
+                                    }
+                                    let mut buf = b.lock().unwrap();
+                                    for frame in data.chunks(channels) {
+                                        let sum: i32 = frame.iter().map(|&s| s as i32).sum();
+                                        let mono = (sum / channels as i32) as i16;
+                                        buf.push(mono);
+                                    }
+                                    sc.fetch_add(data.len() / channels, Ordering::Relaxed);
+                                },
+                                err_fn,
+                                None,
+                            )
+                        }
+                        _ => stream_res,
+                    };
+                }
+
                 match stream_res {
                     Ok(stream) => {
-                        if let Err(e) = stream.play() {
+                        let mut play_res = stream.play();
+                        if play_res.is_err() {
+                            thread::sleep(Duration::from_millis(35));
+                            play_res = stream.play();
+                        }
+                        if let Err(e) = play_res {
                             let _ = reply.send(Err(format!("ERR_DEVICE_BUSY: Could not start audio stream: {e}")));
                             continue;
                         }
@@ -382,16 +450,22 @@ fn run_audio_worker<FLevel, FCountdown, FAutoStop>(
                 // Resample to 16kHz mono
                 let resampled = resample_to_16k(&raw_samples, stream_sample_rate);
 
-                // Trim leading & trailing silences before cloud upload (Section 4.3)
+                // Trim leading & trailing silences before cloud upload
                 let trimmed = trim_silence(&resampled, TARGET_SAMPLE_RATE, DEFAULT_SILENCE_THRESHOLD);
 
-                if trimmed.is_empty() || is_silent(&trimmed, DEFAULT_SILENCE_THRESHOLD) {
+                let audio_samples = if !trimmed.is_empty() {
+                    trimmed
+                } else {
+                    resampled
+                };
+
+                if audio_samples.is_empty() {
                     let _ = reply.send(Err("ERR_NO_SPEECH: We couldn't hear you. No audible speech detected.".into()));
                     continue;
                 }
 
                 // Encode to in-memory WAV
-                match encode_wav(&trimmed, TARGET_SAMPLE_RATE) {
+                match encode_wav(&audio_samples, TARGET_SAMPLE_RATE) {
                     Ok(wav) => {
                         let _ = reply.send(Ok(Some(wav)));
                     }
@@ -465,14 +539,14 @@ fn run_audio_worker<FLevel, FCountdown, FAutoStop>(
     }
 }
 
-/// Trims leading and trailing silence from audio with a 120ms safety pad.
+/// Trims leading and trailing silence from audio with a 100ms safety pad.
 pub fn trim_silence(samples: &[i16], sample_rate: u32, threshold: f32) -> Vec<i16> {
     if samples.is_empty() {
         return Vec::new();
     }
 
     let window_size = (sample_rate as usize / 50).max(64); // ~20ms window
-    let pad_samples = (sample_rate as usize / 8).max(128); // ~120ms pad
+    let pad_samples = (sample_rate as usize / 10).max(128); // ~100ms safety pad
 
     let mut start_idx = 0;
     let mut end_idx = samples.len();

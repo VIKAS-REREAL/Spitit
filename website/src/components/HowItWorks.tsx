@@ -7,7 +7,12 @@ export const HowItWorks: React.FC = () => {
       <div className="container">
         <div className="section-header">
           <span className="section-badge">Simple 3-Step Flow</span>
-          <h2 className="section-title">How It Works</h2>
+          <h2 className="section-title">
+            Push to talk,{' '}
+            <span style={{ fontFamily: 'var(--font-serif)', fontStyle: 'italic', fontWeight: 400, color: 'var(--accent-gold)' }}>
+              release to paste.
+            </span>
+          </h2>
           <p className="section-desc">
             No recording toggles to remember. No floating widgets getting in the way. Dictation is purely push-to-talk.
           </p>
