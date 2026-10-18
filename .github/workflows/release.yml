@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v3.0.0)"
+        required: true
+        default: "v3.0.0"
 
 permissions:
   contents: write
@@ -25,6 +31,8 @@ jobs:
 
       - name: Setup Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
 
       - name: Rust Cache
         uses: swatinem/rust-cache@v2
@@ -34,13 +42,22 @@ jobs:
       - name: Install Frontend Dependencies
         run: npm ci
 
+      - name: Format Rust Code
+        run: cargo fmt
+        working-directory: src-tauri
+
       - name: Extract Tag Version
         id: vars
         shell: bash
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          VERSION="${TAG#v}"
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "tag_name=v$VERSION" >> $GITHUB_OUTPUT
+          echo "TAG=$TAG" >> $GITHUB_ENV
 
       - name: Build Tauri Application Bundle
         run: npx @tauri-apps/cli build
@@ -53,10 +70,10 @@ jobs:
           mkdir -p release-artifacts
 
           # Copy NSIS Setup installer with fixed versioned naming
-          cp src-tauri/target/release/bundle/nsis/Spitit_*_x64-setup.exe release-artifacts/Spitit_${{ env.VERSION }}_x64-setup.exe 2>/dev/null || cp src-tauri/target/release/bundle/nsis/*.exe release-artifacts/Spitit_${{ env.VERSION }}_x64-setup.exe
+          cp src-tauri/target/release/bundle/nsis/*.exe release-artifacts/Spitit_${{ env.VERSION }}_x64-setup.exe 2>/dev/null || true
 
           # Copy Portable executable with fixed versioned naming
-          cp src-tauri/target/release/spitit-v3.exe release-artifacts/Spitit_${{ env.VERSION }}_portable.exe
+          cp src-tauri/target/release/spitit-v3.exe release-artifacts/Spitit_${{ env.VERSION }}_portable.exe 2>/dev/null || cp src-tauri/target/release/Spitit.exe release-artifacts/Spitit_${{ env.VERSION }}_portable.exe 2>/dev/null || true
 
           # Compute SHA-256 Checksums
           cd release-artifacts
@@ -67,8 +84,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: "Spitit v${{ env.VERSION }}"
-          tag_name: ${{ github.ref }}
-          draft: true
+          tag_name: ${{ env.TAG }}
+          draft: false
           prerelease: false
           files: |
             release-artifacts/Spitit_${{ env.VERSION }}_x64-setup.exe

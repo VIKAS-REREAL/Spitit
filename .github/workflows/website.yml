@@ -10,20 +10,14 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 concurrency:
   group: "pages"
   cancel-in-progress: false
 
 jobs:
-  build-and-deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  deploy:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -33,20 +27,4 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./website
-
-      - name: Setup Pages
-        id: pages
-        uses: actions/configure-pages@v5
-        continue-on-error: true
-
-      - name: Upload Artifact
-        if: steps.pages.outcome == 'success'
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: website
-
-      - name: Deploy to GitHub Pages
-        if: steps.pages.outcome == 'success'
-        id: deployment
-        uses: actions/deploy-pages@v4
 

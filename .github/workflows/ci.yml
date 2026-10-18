@@ -3,8 +3,18 @@ name: Continuous Integration & Windows Build
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "website/**"
+      - ".github/workflows/website.yml"
+      - "README.md"
+      - "docs/**"
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "website/**"
+      - ".github/workflows/website.yml"
+      - "README.md"
+      - "docs/**"
   workflow_dispatch:
 
 jobs:
