@@ -69,13 +69,10 @@ impl Default for UserSettings {
 }
 
 fn settings_path() -> Option<PathBuf> {
-    if let Some(appdata) = std::env::var_os("LOCALAPPDATA").or_else(|| std::env::var_os("APPDATA"))
-    {
-        let dir = PathBuf::from(appdata).join("Spitit");
-        let _ = std::fs::create_dir_all(&dir);
-        return Some(dir.join("settings.json"));
-    }
-    None
+    let appdata = std::env::var_os("LOCALAPPDATA").or_else(|| std::env::var_os("APPDATA"))?;
+    let dir = PathBuf::from(appdata).join("Spitit");
+    let _ = std::fs::create_dir_all(&dir);
+    Some(dir.join("settings.json"))
 }
 
 pub fn load_settings() -> UserSettings {

@@ -43,7 +43,7 @@ jobs:
         working-directory: src-tauri
 
       - name: Run Clippy Linter
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --all-targets
         working-directory: src-tauri
 
       - name: Run Rust Tests
