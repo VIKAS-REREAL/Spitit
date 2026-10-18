@@ -63,20 +63,34 @@ impl AppTracker {
         unsafe {
             let hwnd = GetForegroundWindow();
             if hwnd.0.is_null() {
-                return self.last_valid_app.lock().unwrap().clone().unwrap_or_else(fallback_app_info);
+                return self
+                    .last_valid_app
+                    .lock()
+                    .unwrap()
+                    .clone()
+                    .unwrap_or_else(fallback_app_info);
             }
             if let Some(app) = self.resolve_app_for_hwnd_checked(hwnd) {
                 app
             } else {
-                self.last_valid_app.lock().unwrap().clone().unwrap_or_else(fallback_app_info)
+                self.last_valid_app
+                    .lock()
+                    .unwrap()
+                    .clone()
+                    .unwrap_or_else(fallback_app_info)
             }
         }
     }
 
     #[allow(dead_code)]
     pub fn resolve_app_for_hwnd(&self, hwnd: HWND) -> AppInfo {
-        self.resolve_app_for_hwnd_checked(hwnd)
-            .unwrap_or_else(|| self.last_valid_app.lock().unwrap().clone().unwrap_or_else(fallback_app_info))
+        self.resolve_app_for_hwnd_checked(hwnd).unwrap_or_else(|| {
+            self.last_valid_app
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap_or_else(fallback_app_info)
+        })
     }
 
     pub fn resolve_app_for_hwnd_checked(&self, hwnd: HWND) -> Option<AppInfo> {
@@ -145,7 +159,12 @@ impl AppTracker {
                 }
             } else if stem_lower == "applicationframehost" {
                 if !window_title.is_empty() {
-                    display_name = window_title.split('-').next().unwrap_or(&window_title).trim().to_string();
+                    display_name = window_title
+                        .split('-')
+                        .next()
+                        .unwrap_or(&window_title)
+                        .trim()
+                        .to_string();
                 }
             } else if stem_lower == "chrome"
                 || stem_lower == "msedge"
@@ -170,9 +189,14 @@ impl AppTracker {
                     display_name = "Notion".to_string();
                 } else if title_lower.contains("figma") {
                     display_name = "Figma".to_string();
-                } else if title_lower.contains("twitter") || title_lower.contains(" x ") || window_title.ends_with("/ X") {
+                } else if title_lower.contains("twitter")
+                    || title_lower.contains(" x ")
+                    || window_title.ends_with("/ X")
+                {
                     display_name = "X".to_string();
-                } else if title_lower.contains("google docs") || title_lower.contains("google sheets") {
+                } else if title_lower.contains("google docs")
+                    || title_lower.contains("google sheets")
+                {
                     display_name = "Google Docs".to_string();
                 } else if title_lower.contains("reddit") {
                     display_name = "Reddit".to_string();
@@ -310,7 +334,8 @@ unsafe fn resolve_real_window_hwnd(hwnd: HWND) -> HWND {
     if class_len > 0 {
         let class_name = String::from_utf16_lossy(&class_buf[..class_len as usize]);
         if class_name == "ApplicationFrameWindow" {
-            let core_window_class: Vec<u16> = "Windows.UI.Core.CoreWindow\0".encode_utf16().collect();
+            let core_window_class: Vec<u16> =
+                "Windows.UI.Core.CoreWindow\0".encode_utf16().collect();
             let child = FindWindowExW(
                 hwnd,
                 HWND(std::ptr::null_mut()),
@@ -562,9 +587,7 @@ pub fn start_tracking(handle: tauri::AppHandle, tracker: Arc<AppTracker>) {
     let (tx, rx) = std::sync::mpsc::channel::<usize>();
     {
         let mut state = TRACKER_STATE.lock().unwrap();
-        *state = Some(TrackerState {
-            event_tx: tx,
-        });
+        *state = Some(TrackerState { event_tx: tx });
     }
 
     // Dedicated single background worker:
@@ -586,30 +609,28 @@ pub fn start_tracking(handle: tauri::AppHandle, tracker: Arc<AppTracker>) {
         }
     });
 
-    std::thread::spawn(|| {
-        unsafe {
-            let _hook = SetWinEventHook(
-                EVENT_SYSTEM_FOREGROUND,
-                EVENT_SYSTEM_FOREGROUND,
-                None,
-                Some(win_event_hook_callback),
-                0,
-                0,
-                WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
-            );
+    std::thread::spawn(|| unsafe {
+        let _hook = SetWinEventHook(
+            EVENT_SYSTEM_FOREGROUND,
+            EVENT_SYSTEM_FOREGROUND,
+            None,
+            Some(win_event_hook_callback),
+            0,
+            0,
+            WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
+        );
 
-            let mut msg = windows::Win32::UI::WindowsAndMessaging::MSG::default();
-            while windows::Win32::UI::WindowsAndMessaging::GetMessageW(
-                &mut msg,
-                HWND(std::ptr::null_mut()),
-                0,
-                0,
-            )
-            .as_bool()
-            {
-                let _ = windows::Win32::UI::WindowsAndMessaging::TranslateMessage(&msg);
-                let _ = windows::Win32::UI::WindowsAndMessaging::DispatchMessageW(&msg);
-            }
+        let mut msg = windows::Win32::UI::WindowsAndMessaging::MSG::default();
+        while windows::Win32::UI::WindowsAndMessaging::GetMessageW(
+            &mut msg,
+            HWND(std::ptr::null_mut()),
+            0,
+            0,
+        )
+        .as_bool()
+        {
+            let _ = windows::Win32::UI::WindowsAndMessaging::TranslateMessage(&msg);
+            let _ = windows::Win32::UI::WindowsAndMessaging::DispatchMessageW(&msg);
         }
     });
 }

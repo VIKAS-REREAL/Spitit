@@ -108,7 +108,8 @@ fn dpapi_decrypt(ciphertext: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 fn encrypted_fallback_path() -> Option<PathBuf> {
-    if let Some(appdata) = std::env::var_os("LOCALAPPDATA").or_else(|| std::env::var_os("APPDATA")) {
+    if let Some(appdata) = std::env::var_os("LOCALAPPDATA").or_else(|| std::env::var_os("APPDATA"))
+    {
         let dir = PathBuf::from(appdata).join("Spitit");
         let _ = std::fs::create_dir_all(&dir);
         return Some(dir.join("api_key.enc"));
@@ -117,7 +118,8 @@ fn encrypted_fallback_path() -> Option<PathBuf> {
 }
 
 fn legacy_plain_key_path() -> Option<PathBuf> {
-    if let Some(appdata) = std::env::var_os("LOCALAPPDATA").or_else(|| std::env::var_os("APPDATA")) {
+    if let Some(appdata) = std::env::var_os("LOCALAPPDATA").or_else(|| std::env::var_os("APPDATA"))
+    {
         let path = PathBuf::from(appdata).join("Spitit").join("groq.key");
         if path.exists() {
             return Some(path);

@@ -30,10 +30,18 @@ pub struct UserSettings {
     pub onboarding_completed: bool,
 }
 
-fn default_hotkey_preset() -> u8 { 1 } // Alt + Left Shift (Spitit classic)
-fn default_hold_hotkey() -> String { "Alt+LShift".to_string() }
-fn default_toggle_hotkey() -> String { "Alt+Space".to_string() }
-fn default_hotkey_combo() -> String { "alt_shift".to_string() }
+fn default_hotkey_preset() -> u8 {
+    1
+} // Alt + Left Shift (Spitit classic)
+fn default_hold_hotkey() -> String {
+    "Alt+LShift".to_string()
+}
+fn default_toggle_hotkey() -> String {
+    "Alt+Space".to_string()
+}
+fn default_hotkey_combo() -> String {
+    "alt_shift".to_string()
+}
 
 impl Default for UserSettings {
     fn default() -> Self {
@@ -61,7 +69,8 @@ impl Default for UserSettings {
 }
 
 fn settings_path() -> Option<PathBuf> {
-    if let Some(appdata) = std::env::var_os("LOCALAPPDATA").or_else(|| std::env::var_os("APPDATA")) {
+    if let Some(appdata) = std::env::var_os("LOCALAPPDATA").or_else(|| std::env::var_os("APPDATA"))
+    {
         let dir = PathBuf::from(appdata).join("Spitit");
         let _ = std::fs::create_dir_all(&dir);
         return Some(dir.join("settings.json"));

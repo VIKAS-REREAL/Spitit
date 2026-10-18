@@ -36,10 +36,9 @@ use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, GetCursorPos, GetSystemMetrics, GetWindowLongW, SetForegroundWindow,
-    SetWindowLongW, SetWindowPos, ShowWindow, GWL_EXSTYLE, GWL_STYLE, HWND_TOPMOST,
-    SM_CXSCREEN, SM_CYSCREEN, SWP_FRAMECHANGED, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE,
-    SWP_NOSIZE, SW_RESTORE, SW_SHOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX,
-    WS_THICKFRAME,
+    SetWindowLongW, SetWindowPos, ShowWindow, GWL_EXSTYLE, GWL_STYLE, HWND_TOPMOST, SM_CXSCREEN,
+    SM_CYSCREEN, SWP_FRAMECHANGED, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    SW_RESTORE, SW_SHOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_THICKFRAME,
 };
 
 #[derive(Serialize, Clone)]
@@ -123,9 +122,7 @@ pub fn configure_pill_window(pill_win: &tauri::WebviewWindow) {
             SetWindowLongW(
                 hwnd,
                 GWL_EXSTYLE,
-                ex_style
-                    | (WS_EX_NOACTIVATE.0 as i32)
-                    | (WS_EX_TOOLWINDOW.0 as i32),
+                ex_style | (WS_EX_NOACTIVATE.0 as i32) | (WS_EX_TOOLWINDOW.0 as i32),
             );
 
             let _ = SetWindowPos(
@@ -198,11 +195,7 @@ pub fn configure_tray_popup_window(window: &tauri::WebviewWindow) {
             );
 
             let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
-            SetWindowLongW(
-                hwnd,
-                GWL_EXSTYLE,
-                ex_style | (WS_EX_TOOLWINDOW.0 as i32),
-            );
+            SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style | (WS_EX_TOOLWINDOW.0 as i32));
 
             let _ = SetWindowPos(
                 hwnd,
@@ -481,14 +474,7 @@ fn is_autostart_enabled() -> bool {
         )
         .is_ok()
         {
-            let res = RegQueryValueExW(
-                hkey,
-                PCWSTR(name.as_ptr()),
-                None,
-                None,
-                None,
-                None,
-            );
+            let res = RegQueryValueExW(hkey, PCWSTR(name.as_ptr()), None, None, None, None);
             let _ = RegCloseKey(hkey);
             res.is_ok()
         } else {
@@ -522,13 +508,7 @@ fn set_autostart_enabled(enabled: bool) -> Result<(), String> {
             let val = format!("\"{}\" --autostart", current_exe.to_string_lossy());
             let val_w: Vec<u16> = val.encode_utf16().chain(std::iter::once(0)).collect();
             let bytes = std::slice::from_raw_parts(val_w.as_ptr() as *const u8, val_w.len() * 2);
-            RegSetValueExW(
-                hkey,
-                PCWSTR(name.as_ptr()),
-                0,
-                REG_SZ,
-                Some(bytes),
-            )
+            RegSetValueExW(hkey, PCWSTR(name.as_ptr()), 0, REG_SZ, Some(bytes))
         } else {
             RegDeleteValueW(hkey, PCWSTR(name.as_ptr()))
         };
@@ -539,8 +519,14 @@ fn set_autostart_enabled(enabled: bool) -> Result<(), String> {
 
 // Database IPC commands
 #[tauri::command]
-fn get_history(state: tauri::State<AppState>, search: Option<String>, limit: Option<usize>) -> Result<Vec<HistoryRecord>, String> {
-    state.db.get_history(search.as_deref(), limit.unwrap_or(100))
+fn get_history(
+    state: tauri::State<AppState>,
+    search: Option<String>,
+    limit: Option<usize>,
+) -> Result<Vec<HistoryRecord>, String> {
+    state
+        .db
+        .get_history(search.as_deref(), limit.unwrap_or(100))
 }
 
 #[tauri::command]

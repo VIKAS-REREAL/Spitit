@@ -143,8 +143,8 @@ pub fn check_windows_mic_privacy() -> Result<(), String> {
     unsafe {
         use windows::core::PCWSTR;
         use windows::Win32::System::Registry::{
-            RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE,
-            KEY_READ,
+            RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_CURRENT_USER,
+            HKEY_LOCAL_MACHINE, KEY_READ,
         };
 
         let subkeys = [
@@ -332,7 +332,9 @@ fn run_audio_worker<FLevel, FCountdown, FAutoStop>(
                         )
                     }
                     _ => {
-                        let _ = reply.send(Err("ERR_AUDIO_FORMAT: Unsupported microphone sample format.".into()));
+                        let _ = reply.send(Err(
+                            "ERR_AUDIO_FORMAT: Unsupported microphone sample format.".into(),
+                        ));
                         continue;
                     }
                 };
@@ -398,7 +400,9 @@ fn run_audio_worker<FLevel, FCountdown, FAutoStop>(
                             play_res = stream.play();
                         }
                         if let Err(e) = play_res {
-                            let _ = reply.send(Err(format!("ERR_DEVICE_BUSY: Could not start audio stream: {e}")));
+                            let _ = reply.send(Err(format!(
+                                "ERR_DEVICE_BUSY: Could not start audio stream: {e}"
+                            )));
                             continue;
                         }
                         active_stream = Some(stream);
@@ -407,7 +411,9 @@ fn run_audio_worker<FLevel, FCountdown, FAutoStop>(
                         let _ = reply.send(Ok(()));
                     }
                     Err(e) => {
-                        let _ = reply.send(Err(format!("ERR_PERMISSION_DENIED: Failed to initialize microphone: {e}")));
+                        let _ = reply.send(Err(format!(
+                            "ERR_PERMISSION_DENIED: Failed to initialize microphone: {e}"
+                        )));
                     }
                 }
             }
@@ -418,7 +424,9 @@ fn run_audio_worker<FLevel, FCountdown, FAutoStop>(
                     let _ = s.pause();
                 }
 
-                let elapsed = start_instant.map(|t| t.elapsed().as_secs_f32()).unwrap_or(0.0);
+                let elapsed = start_instant
+                    .map(|t| t.elapsed().as_secs_f32())
+                    .unwrap_or(0.0);
                 *last_dur_store.lock().unwrap() = elapsed;
                 start_instant = None;
 
@@ -451,7 +459,8 @@ fn run_audio_worker<FLevel, FCountdown, FAutoStop>(
                 let resampled = resample_to_16k(&raw_samples, stream_sample_rate);
 
                 // Trim leading & trailing silences before cloud upload
-                let trimmed = trim_silence(&resampled, TARGET_SAMPLE_RATE, DEFAULT_SILENCE_THRESHOLD);
+                let trimmed =
+                    trim_silence(&resampled, TARGET_SAMPLE_RATE, DEFAULT_SILENCE_THRESHOLD);
 
                 let audio_samples = if !trimmed.is_empty() {
                     trimmed
@@ -460,7 +469,9 @@ fn run_audio_worker<FLevel, FCountdown, FAutoStop>(
                 };
 
                 if audio_samples.is_empty() {
-                    let _ = reply.send(Err("ERR_NO_SPEECH: We couldn't hear you. No audible speech detected.".into()));
+                    let _ = reply.send(Err(
+                        "ERR_NO_SPEECH: We couldn't hear you. No audible speech detected.".into(),
+                    ));
                     continue;
                 }
 

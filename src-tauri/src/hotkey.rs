@@ -18,9 +18,8 @@ use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{HINSTANCE, LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, GetMessageW, SetWindowsHookExW, UnhookWindowsHookEx,
-    HHOOK, KBDLLHOOKSTRUCT, MSG, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN,
-    WM_SYSKEYUP,
+    CallNextHookEx, GetMessageW, SetWindowsHookExW, UnhookWindowsHookEx, HHOOK, KBDLLHOOKSTRUCT,
+    MSG, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
 // Virtual Key Constants
@@ -29,7 +28,7 @@ pub const VK_RSHIFT: u32 = 0xA1;
 pub const VK_SHIFT: u32 = 0x10;
 pub const VK_LMENU: u32 = 0xA4; // Left Alt
 pub const VK_RMENU: u32 = 0xA5; // Right Alt (AltGr)
-pub const VK_MENU: u32 = 0x12;  // Alt
+pub const VK_MENU: u32 = 0x12; // Alt
 pub const VK_LCONTROL: u32 = 0xA2;
 pub const VK_RCONTROL: u32 = 0xA3;
 pub const VK_CONTROL: u32 = 0x11;
@@ -142,13 +141,23 @@ pub fn preset_contains_vk(preset_id: u8, vk: u32) -> bool {
         1 => vk == VK_LMENU || vk == VK_MENU || vk == VK_LSHIFT || vk == VK_SHIFT,
         2 => vk == VK_LCONTROL || vk == VK_CONTROL || vk == VK_LSHIFT || vk == VK_SHIFT,
         3 => vk == VK_RMENU || vk == VK_MENU,
-        4 => vk == VK_LCONTROL || vk == VK_CONTROL || vk == VK_LMENU || vk == VK_MENU || vk == VK_SPACE,
+        4 => {
+            vk == VK_LCONTROL
+                || vk == VK_CONTROL
+                || vk == VK_LMENU
+                || vk == VK_MENU
+                || vk == VK_SPACE
+        }
         5 => vk == VK_LCONTROL || vk == VK_CONTROL || vk == VK_SPACE,
         _ => false,
     }
 }
 
-pub fn validate_hotkey_combo(_combo_str: &str, _is_hold: bool, _other_combo: &str) -> ValidationResult {
+pub fn validate_hotkey_combo(
+    _combo_str: &str,
+    _is_hold: bool,
+    _other_combo: &str,
+) -> ValidationResult {
     ValidationResult {
         tier: "ok".into(),
         reason: "Valid shortcut preset.".into(),
@@ -283,7 +292,9 @@ impl HotkeyManager {
                         thread::sleep(min_hold);
                         if let Ok(mut lock) = HOOK_STATE.lock() {
                             if let Some(s) = lock.as_mut() {
-                                if s.candidate_seq == my_seq && s.engine_state == EngineState::CandidateHold {
+                                if s.candidate_seq == my_seq
+                                    && s.engine_state == EngineState::CandidateHold
+                                {
                                     s.engine_state = EngineState::Recording;
                                     let _ = s.event_tx.send(HotkeyEvent::StartConfirmed);
                                 }
@@ -298,7 +309,9 @@ impl HotkeyManager {
     #[allow(dead_code)]
     pub fn get_engine_state(&self) -> EngineState {
         let lock = HOOK_STATE.lock().unwrap();
-        lock.as_ref().map(|s| s.engine_state).unwrap_or(EngineState::Idle)
+        lock.as_ref()
+            .map(|s| s.engine_state)
+            .unwrap_or(EngineState::Idle)
     }
 }
 
@@ -378,7 +391,11 @@ unsafe extern "system" fn low_level_keyboard_proc(
             if vk == VK_MENU {
                 vk = if is_extended { VK_RMENU } else { VK_LMENU };
             } else if vk == VK_CONTROL {
-                vk = if is_extended { VK_RCONTROL } else { VK_LCONTROL };
+                vk = if is_extended {
+                    VK_RCONTROL
+                } else {
+                    VK_LCONTROL
+                };
             }
 
             let is_down = wparam.0 == WM_KEYDOWN as usize || wparam.0 == WM_SYSKEYDOWN as usize;
@@ -431,7 +448,9 @@ fn handle_raw_key_event(state: &mut HookSharedState, vk: u32, is_down: bool, is_
                         thread::sleep(min_hold);
                         if let Ok(mut lock) = HOOK_STATE.lock() {
                             if let Some(s) = lock.as_mut() {
-                                if s.candidate_seq == my_seq && s.engine_state == EngineState::CandidateHold {
+                                if s.candidate_seq == my_seq
+                                    && s.engine_state == EngineState::CandidateHold
+                                {
                                     s.engine_state = EngineState::Recording;
                                     let _ = s.event_tx.send(HotkeyEvent::StartConfirmed);
                                 }
@@ -462,7 +481,10 @@ fn handle_raw_key_event(state: &mut HookSharedState, vk: u32, is_down: bool, is_
             let is_combo_key = preset_contains_vk(state.preset_id, vk);
             if is_combo_key {
                 if state.engine_state == EngineState::CandidateHold {
-                    let elapsed = state.candidate_start.map(|t| t.elapsed()).unwrap_or_default();
+                    let elapsed = state
+                        .candidate_start
+                        .map(|t| t.elapsed())
+                        .unwrap_or_default();
                     if elapsed >= state.min_hold_time {
                         state.engine_state = EngineState::Processing;
                         state.candidate_start = None;

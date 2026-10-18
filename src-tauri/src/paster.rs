@@ -28,8 +28,8 @@ pub fn paste_text(text: &str, target_hwnd_val: isize, auto_paste: bool) -> Resul
     }
 
     // 1. Copy to clipboard (transcript stays in clipboard per locked decision 4.7)
-    let mut clipboard = arboard::Clipboard::new()
-        .map_err(|e| format!("Failed to access clipboard: {e}"))?;
+    let mut clipboard =
+        arboard::Clipboard::new().map_err(|e| format!("Failed to access clipboard: {e}"))?;
     clipboard
         .set_text(text)
         .map_err(|e| format!("Failed to set clipboard text: {e}"))?;

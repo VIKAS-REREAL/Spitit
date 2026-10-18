@@ -184,7 +184,11 @@ impl DbManager {
         Ok(())
     }
 
-    pub fn get_history(&self, search: Option<&str>, limit: usize) -> Result<Vec<HistoryRecord>, String> {
+    pub fn get_history(
+        &self,
+        search: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<HistoryRecord>, String> {
         let conn = self.conn.lock().unwrap();
         let search_term = search.unwrap_or("").trim().to_lowercase();
 
@@ -266,7 +270,8 @@ impl DbManager {
             .prepare("SELECT timestamp_ms, word_count, duration_secs, app_name FROM usage_stats ORDER BY timestamp_ms ASC;")
             .map_err(|e| e.to_string())?;
 
-        let mut app_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let mut app_counts: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
 
         // 7-day volume tracking
         let day_names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -457,20 +462,47 @@ mod tests {
         let db = DbManager::new_in_memory();
 
         // 1. Save with text history DISABLED, usage stats ENABLED
-        db.save_record("Secret private text", 3, 1.5, 120, "Notepad", None, "en", false, true)
-            .unwrap();
+        db.save_record(
+            "Secret private text",
+            3,
+            1.5,
+            120,
+            "Notepad",
+            None,
+            "en",
+            false,
+            true,
+        )
+        .unwrap();
 
         let history = db.get_history(None, 10).unwrap();
-        assert_eq!(history.len(), 0, "No text should be written when save_history is false");
+        assert_eq!(
+            history.len(),
+            0,
+            "No text should be written when save_history is false"
+        );
 
         let stats = db.get_dashboard_stats().unwrap();
-        assert_eq!(stats.total_words, 3, "Stats must count words even with history off");
+        assert_eq!(
+            stats.total_words, 3,
+            "Stats must count words even with history off"
+        );
         assert_eq!(stats.total_dictations, 1);
         assert!(!stats.is_empty);
 
         // 2. Save with text history ENABLED
-        db.save_record("Public notes", 2, 1.0, 120, "VS Code", None, "en", true, true)
-            .unwrap();
+        db.save_record(
+            "Public notes",
+            2,
+            1.0,
+            120,
+            "VS Code",
+            None,
+            "en",
+            true,
+            true,
+        )
+        .unwrap();
 
         let history2 = db.get_history(None, 10).unwrap();
         assert_eq!(history2.len(), 1);
@@ -481,11 +513,25 @@ mod tests {
     fn test_cap_500_entries() {
         let db = DbManager::new_in_memory();
         for i in 0..520 {
-            db.save_record(&format!("dictation {i}"), 2, 1.0, 120, "App", None, "en", true, false)
-                .unwrap();
+            db.save_record(
+                &format!("dictation {i}"),
+                2,
+                1.0,
+                120,
+                "App",
+                None,
+                "en",
+                true,
+                false,
+            )
+            .unwrap();
         }
         let history = db.get_history(None, 1000).unwrap();
-        assert_eq!(history.len(), 500, "Text history must be capped at 500 rows");
+        assert_eq!(
+            history.len(),
+            500,
+            "Text history must be capped at 500 rows"
+        );
     }
 
     #[test]

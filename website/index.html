@@ -1,75 +1,437 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Spitit - Ultra-Fast Voice Dictation for Windows | Open Source (BYOK)</title>
-    <meta
-      name="description"
-      content="Open-source voice dictation client for Windows 10 & 11. Bring your own Groq API key. Zero telemetry, sub-35 MB idle RAM, signature glass status pill, and instant auto-paste."
-    />
-    <meta name="keywords" content="voice dictation windows, whisper speech to text, groq whisper, open source dictation, hinglish voice typing, speech to text windows 11" />
-    <meta name="author" content="Vikas Nath (REREAL)" />
-    <link rel="canonical" href="https://spitit.in/" />
-    <meta name="theme-color" content="#0d0d11" />
 
-    <!-- Open Graph / Facebook -->
-    <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://spitit.in/" />
-    <meta property="og:title" content="Spitit — Ultra-Fast Voice Dictation for Windows" />
-    <meta
-      property="og:description"
-      content="Open-source voice dictation for Windows 10 & 11 powered by your own Groq key. Zero telemetry, sub-35 MB idle RAM, and instant auto-paste."
-    />
-    <meta property="og:image" content="https://spitit.in/icon.png" />
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="REREAL Spitit — Sub-second voice-to-text for Windows. Hold, speak, release. Done.">
+  <title>REREAL · Spitit | Voice to Text</title>
+  <link rel="icon" href="icon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400;1,500&family=Figtree:wght@400;500;600;700&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
 
-    <!-- Twitter -->
-    <meta property="twitter:card" content="summary_large_image" />
-    <meta property="twitter:url" content="https://spitit.in/" />
-    <meta property="twitter:title" content="Spitit — Ultra-Fast Voice Dictation for Windows" />
-    <meta
-      property="twitter:description"
-      content="Open-source voice dictation for Windows 10 & 11 powered by your own Groq key. Zero telemetry, sub-35 MB idle RAM, and instant auto-paste."
-    />
-    <meta property="twitter:image" content="https://spitit.in/icon.png" />
+<body>
 
-    <!-- Icons -->
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="apple-touch-icon" href="/icon.png" />
+  <!-- ══════════════════════════════════
+       NAV — Logo image + tabs + yellow CTA
+  ══════════════════════════════════ -->
+  <nav class="nav">
+    <div class="nav-left">
+      <!-- Logo mark (icon.svg inline) + wordmark -->
+      <!-- Use icon.svg file directly — much cleaner -->
+      <a href="/" class="nav-logo">
+        <img src="icon.svg" class="nav-logo-img" alt="Spitit" width="32" height="32">
+        <span class="nav-logo-wordmark">Spitit</span>
+      </a>
+      <div class="nav-divider"></div>
+      <div class="nav-tabs">
+        <a href="/" class="nav-tab active">Dictation</a>
+        <a href="guide.html" class="nav-tab">Guide</a>
+      </div>
+    </div>
+    <a href="https://github.com/VIKAS-REREAL/REREAL-Spitit/releases" class="nav-cta" id="nav-dl">Download for free</a>
+  </nav>
 
-    <!-- Google Fonts: Plus Jakarta Sans, Instrument Serif, Inter & JetBrains Mono -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap"
-      rel="stylesheet"
-    />
+  <!-- ══════════════════════════════════
+       HERO
+  ══════════════════════════════════ -->
+  <section class="hero">
+    <div class="hero-spacer"></div>
 
-    <!-- Structured Data (JSON-LD) -->
-    <script type="application/ld+json">
-      {
-        "@context": "https://schema.org",
-        "@type": "SoftwareApplication",
-        "name": "Spitit",
-        "operatingSystem": "Windows 10, Windows 11",
-        "applicationCategory": "ProductivityApplication",
-        "offers": {
-          "@type": "Offer",
-          "price": "0",
-          "priceCurrency": "USD"
-        },
-        "description": "Ultra-fast open-source voice dictation client for Windows powered by Groq Whisper with signature glass status pill and instant auto-paste.",
-        "url": "https://spitit.in",
-        "downloadUrl": "https://github.com/VIKAS-REREAL/Spitit/releases",
-        "author": {
-          "@type": "Person",
-          "name": "Vikas Nath (REREAL)"
-        }
-      }
-    </script>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+    <div class="hero-content">
+      <div class="tag">REREAL · Spitit &dash; Beta Version</div>
+      <h1 class="hero-title">Got something to say?
+<br><em>Spit it. We’ll type it.</em></h1>
+      <p class="hero-sub">The voice-to-text AI that turns speech into clear, polished writing in every app.</p>
+      <a href="https://github.com/VIKAS-REREAL/REREAL-Spitit/releases" class="btn-download" id="hero-dl">Download for free</a>
+      <p class="hero-note">Free &middot; Windows 10 &amp; 11 &middot; No account needed</p>
+    </div>
+
+    <!-- SVG text flows — left wavy audio curve leveling into pill, right ribbon exiting straight out of pill -->
+    <div class="hero-animation-wrap">
+
+      <!-- LEFT SVG: raw speech text rides along a wavy audio soundwave path, leveling smoothly into the left side of the pill -->
+      <svg class="hero-svg hero-svg-left" viewBox="0 0 1400 320" fill="none" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+        <!-- Gentle soundwave: small amplitude ±20px so text stays nearly horizontal -->
+        <path id="curve-left"
+          d="M -50 160 C 120 140, 220 180, 340 145 C 460 120, 560 175, 680 160 L 710 160"
+          stroke="none" fill="none"/>
+        <text fill="#1A1A1A" opacity="0.55" font-family="Figtree, sans-serif" font-size="15" font-weight="500" letter-spacing="0.01em">
+          <textPath xlink:href="#curve-left" startOffset="-100%">
+            Umm, hope your week has started well… I was talking to the team earlier but reception was really bad and I think we're gonna handle the first part of the sprint but I'm not totally sure. Also I told everyone the timeline should be ready by Friday, although it's probably going to slip. There's been a lot of back and forth and honestly the whole thing's been kind of chaotic, like nobody really knows what's going on, so can you check if the notes from yesterday's meeting were sent out? Umm, hope your week has started well…
+            <animate attributeName="startOffset" dur="28s" values="-100%; 0%" repeatCount="indefinite"/>
+          </textPath>
+        </text>
+      </svg>
+
+      <!-- PILL — fixed at center of animation area -->
+      <div class="pill-center">
+        <div class="the-pill" id="the-pill">
+          <div class="pill-bars">
+            <div class="pill-bar"></div>
+            <div class="pill-bar"></div>
+            <div class="pill-bar"></div>
+            <div class="pill-bar"></div>
+            <div class="pill-bar"></div>
+            <div class="pill-bar"></div>
+            <div class="pill-bar"></div>
+            <div class="pill-bar"></div>
+            <div class="pill-bar"></div>
+            <div class="pill-bar"></div>
+          </div>
+          <span class="pill-text" id="pill-txt">Recording</span>
+        </div>
+        <div class="pill-hotkey">Hold <kbd>Alt</kbd> + <kbd>LShift</kbd></div>
+      </div>
+
+      <!-- RIGHT SVG: ribbon exits pill 100% straight horizontal, perfectly aligned with pill height -->
+      <svg class="hero-svg hero-svg-right" viewBox="0 0 1400 320" fill="none" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+        <path id="curve-right"
+          d="M 690 160 L 800 160 C 920 160, 1020 230, 1160 230 C 1300 230, 1380 160, 1500 160"
+          stroke="#111111" stroke-width="36" stroke-linecap="round" fill="none"/>
+        <text dy="5.5" fill="#FFFFEB" font-family="Figtree, sans-serif" font-size="15" font-weight="600">
+          <textPath xlink:href="#curve-right" startOffset="-100%">
+            Hope your week is off to a great start. I was talking with the team — reception was a bit spotty, but they’ll handle the first part of the sprint. The new timeline should be ready by Friday, though it might slip slightly. Can you follow up and confirm that yesterday’s meeting notes were distributed? Hope your week is off to a great start.
+            <animate attributeName="startOffset" dur="35s" values="-100%; 0%" repeatCount="indefinite"/>
+          </textPath>
+        </text>
+      </svg>
+
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════
+       LOGO TICKER
+  ══════════════════════════════════ -->
+  <section class="logos-section">
+    <p class="logos-label">Works in every app</p>
+    <div class="marquee-wrap">
+      <div class="marquee-track">
+        <div class="logo-item"><span>VS Code</span></div>
+        <div class="logo-item"><span>Cursor</span></div>
+        <div class="logo-item"><span>Notion</span></div>
+        <div class="logo-item"><span>Slack</span></div>
+        <div class="logo-item"><span>Gmail</span></div>
+        <div class="logo-item"><span>Outlook</span></div>
+        <div class="logo-item"><span>Obsidian</span></div>
+        <div class="logo-item"><span>WhatsApp</span></div>
+        <div class="logo-item"><span>ChatGPT</span></div>
+        <div class="logo-item"><span>Claude</span></div>
+        <div class="logo-item"><span>Linear</span></div>
+        <div class="logo-item"><span>Figma</span></div>
+        <!-- Duplicate for loop -->
+        <div class="logo-item"><span>VS Code</span></div>
+        <div class="logo-item"><span>Cursor</span></div>
+        <div class="logo-item"><span>Notion</span></div>
+        <div class="logo-item"><span>Slack</span></div>
+        <div class="logo-item"><span>Gmail</span></div>
+        <div class="logo-item"><span>Outlook</span></div>
+        <div class="logo-item"><span>Obsidian</span></div>
+        <div class="logo-item"><span>WhatsApp</span></div>
+        <div class="logo-item"><span>ChatGPT</span></div>
+        <div class="logo-item"><span>Claude</span></div>
+        <div class="logo-item"><span>Linear</span></div>
+        <div class="logo-item"><span>Figma</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════
+       SPEED SECTION (dark)
+  ══════════════════════════════════ -->
+  <div class="speed-section-wrap">
+    <section class="speed-section">
+      <div class="speed-inner">
+        <p class="speed-label">Performance</p>
+        <h2 class="speed-title">
+          <span class="accent">Sub-second</span> speed,<br><em>every time.</em>
+        </h2>
+        <p class="speed-sub">
+          Groq's LPU runs Whisper Large-v3 Turbo. From hotkey release to text in your window — ~350ms. Not a round
+          number. We measured it.
+        </p>
+
+        <div class="speed-cards">
+          <div class="sp-card kb">
+            <p class="sp-lbl">Typing</p>
+            <p class="sp-name">Keyboard</p>
+            <p class="sp-num">45 <span class="sp-unit">wpm</span></p>
+            <div class="sp-wave">
+              <svg width="100%" height="40" viewBox="0 0 500 40" xmlns="http://www.w3.org/2000/svg">
+                <path id="sp-line-kb" d="M0 22 H1000" fill="none" />
+                <text x="0">
+                  <textPath href="#sp-line-kb">I'm typing this out slowly, one key at a time…&nbsp;&nbsp;I'm typing this
+                    out slowly, one key at a time…&nbsp;&nbsp;</textPath>
+                  <animate attributeName="x" dur="14s" values="0;-500" repeatCount="indefinite" />
+                </text>
+                <style>
+                  #sp-line-kb {
+                    fill: transparent
+                  }
+
+                  #sp-line-kb+text textPath {
+                    font-family: 'Figtree', sans-serif;
+                    font-size: 12px;
+                    font-weight: 600;
+                    fill: rgba(255, 255, 235, 0.25)
+                  }
+                </style>
+              </svg>
+            </div>
+          </div>
+          <div class="sp-vs"><em>vs</em></div>
+          <div class="sp-card spitit">
+            <p class="sp-lbl">Spitit</p>
+            <p class="sp-name">Voice</p>
+            <p class="sp-num">220 <span class="sp-unit">wpm</span></p>
+            <div class="sp-wave">
+              <svg width="100%" height="40" viewBox="0 0 500 40" xmlns="http://www.w3.org/2000/svg">
+                <path id="sp-wave-s"
+                  d="M0 28 C80 8,160 38,240 22 C320 6,400 38,480 22 C560 6,640 38,720 22 C800 6,880 38,960 22 C1040 6,1120 38,1200 22"
+                  fill="none" />
+                <text x="0">
+                  <textPath href="#sp-wave-s">Speaking naturally at the speed of thought — transcribed
+                    instantly.&nbsp;&nbsp;&nbsp;Speaking naturally at the speed of thought…</textPath>
+                  <animate attributeName="x" dur="7s" values="0;-500" repeatCount="indefinite" />
+                </text>
+                <style>
+                  #sp-wave-s {
+                    fill: transparent
+                  }
+
+                  #sp-wave-s+text textPath {
+                    font-family: 'Figtree', sans-serif;
+                    font-size: 12px;
+                    font-weight: 600;
+                    fill: rgba(255, 213, 5, 0.85)
+                  }
+                </style>
+              </svg>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ══════════════════════════════════
+       FEATURES — SVG icons, no emojis
+  ══════════════════════════════════ -->
+  <section class="features-section" id="features">
+    <div class="section-header">
+      <p class="section-tag">Features</p>
+      <h2 class="section-title">Everything you need,<br><em>nothing you don't.</em></h2>
+    </div>
+
+    <div class="features-grid">
+
+      <div class="feat-card">
+        <div class="feat-icon">
+          <!-- Zap icon -->
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+          </svg>
+        </div>
+        <h3 class="feat-title">Sub-second<br><em>transcription</em></h3>
+        <p class="feat-body">Groq's LPU inference means ~350ms from hotkey release to text on screen. No cloud roundtrip
+          delay. No waiting animation.</p>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-icon">
+          <!-- Layout icon -->
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <path d="M3 9h18M9 21V9" />
+          </svg>
+        </div>
+        <h3 class="feat-title">Paste into<br><em>any app</em></h3>
+        <p class="feat-body">Whatever window has focus gets the text. Cursor, Notion, Gmail, Slack, VS Code, WhatsApp
+          Web — it just works.</p>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-icon">
+          <!-- Shield icon -->
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          </svg>
+        </div>
+        <h3 class="feat-title">100% private,<br><em>zero middlemen</em></h3>
+        <p class="feat-body">Audio goes from your mic to Groq over encrypted TLS. No Spitit servers. No logging. No data
+          retention. Period.</p>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-icon">
+          <!-- Mic icon -->
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+            <line x1="12" y1="19" x2="12" y2="23" />
+            <line x1="8" y1="23" x2="16" y2="23" />
+          </svg>
+        </div>
+        <h3 class="feat-title">Hinglish<br><em>actually works</em></h3>
+        <p class="feat-body">"Meeting 6 baje start karte hain bhai" — comes out exactly like that, in Roman script,
+          correctly. Not transliterated garbage.</p>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-icon">
+          <!-- Keyboard icon -->
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <rect x="2" y="6" width="20" height="12" rx="2" />
+            <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" />
+          </svg>
+        </div>
+        <h3 class="feat-title">Custom<br><em>hotkey</em></h3>
+        <p class="feat-body">Hold <kbd class="k">Alt</kbd> + <kbd class="k">LShift</kbd> to record. Change it to
+          anything. Toggle mode, hold mode — your workflow, your rules.</p>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-icon">
+          <!-- Minimize icon -->
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <polyline points="4 14 10 14 10 20" />
+            <polyline points="20 10 14 10 14 4" />
+            <line x1="10" y1="14" x2="21" y2="3" />
+            <line x1="3" y1="21" x2="14" y2="10" />
+          </svg>
+        </div>
+        <h3 class="feat-title">System tray,<br><em>zero distraction</em></h3>
+        <p class="feat-body">No window in your face. The only UI is the floating pill during recording — which vanishes
+          the instant transcription finishes.</p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════
+       HOW IT WORKS
+  ══════════════════════════════════ -->
+  <section class="how-section" id="how">
+    <div class="section-header">
+      <p class="section-tag">Getting started</p>
+      <h2 class="section-title">Three steps,<br><em>then it's yours.</em></h2>
+    </div>
+    <div class="steps-grid">
+      <div class="step-item">
+        <p class="step-num">Step 01</p>
+        <h3 class="step-title">Get a free<br><em>Groq API key</em></h3>
+        <p class="step-body">Visit <a href="https://console.groq.com" target="_blank"
+            style="text-decoration:underline;text-underline-offset:3px;">console.groq.com</a>. Sign up free. Copy your
+          API key. The free tier handles heavy daily use easily.</p>
+      </div>
+      <div class="step-item">
+        <p class="step-num">Step 02</p>
+        <h3 class="step-title">Download<br><em>and install</em></h3>
+        <p class="step-body">Run the installer. When prompted, paste your Groq API key. No terminal required. No Python.
+          Launches in system tray and stays there.</p>
+      </div>
+      <div class="step-item">
+        <p class="step-num">Step 03</p>
+        <h3 class="step-title">Hold, speak,<br><em>release.</em></h3>
+        <p class="step-body">Press <kbd class="k">Alt</kbd> + <kbd class="k">LShift</kbd> and speak. Release when done.
+          ~350ms later your words appear, clean, wherever your cursor was.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════
+       DOWNLOAD CTA
+  ══════════════════════════════════ -->
+  <section class="cta-section" id="download">
+    <h2 class="cta-title">Start speaking.<br><em>Stop typing.</em></h2>
+    <p class="cta-sub">Free. Open source. No subscription. Windows 10 &amp; 11.</p>
+    <div>
+      <a href="#" class="btn-download" id="dl-btn" style="font-size:16px; padding:14px 36px;">
+        Download for free
+      </a>
+      <a href="https://github.com/VIKAS-REREAL/REREAL-Spitit" target="_blank" class="btn-outline">
+        View on GitHub
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+          <polyline points="15 3 21 3 21 9" />
+          <line x1="10" y1="14" x2="21" y2="3" />
+        </svg>
+      </a>
+    </div>
+    <p class="cta-note">v2.0.2 &middot; MIT License &middot; Groq API key required (free tier available)</p>
+  </section>
+
+  <!-- ══════════════════════════════════
+       FOOTER — Premium redesign
+  ══════════════════════════════════ -->
+  <footer class="footer">
+
+    <!-- Giant italic watermark -->
+    <div class="footer-wordmark">
+      <span class="footer-wordmark-text">Spitit</span>
+    </div>
+
+    <!-- Main 3-column content -->
+    <div class="footer-inner">
+
+      <!-- Brand column -->
+      <div class="footer-col footer-col-brand">
+        <a href="/" class="footer-logo">
+          <img src="icon.svg" alt="Spitit" width="36" height="36" class="footer-logo-img">
+          <span class="footer-logo-name">Spitit</span>
+        </a>
+        <p class="footer-tagline">The voice-to-text AI that turns speech into clear, polished writing — in every app.</p>
+        <a href="https://github.com/VIKAS-REREAL/REREAL-Spitit/releases" id="dl-btn" class="footer-cta">Download for free</a>
+      </div>
+
+      <!-- Product column -->
+      <div class="footer-col">
+        <p class="footer-col-title">Product</p>
+        <a href="guide.html" class="footer-link">Guide</a>
+        <a href="https://github.com/VIKAS-REREAL/REREAL-Spitit/blob/main/CHANGELOG.md" target="_blank" class="footer-link">Changelog</a>
+        <a href="https://github.com/VIKAS-REREAL/REREAL-Spitit/issues" target="_blank" class="footer-link">Report an issue</a>
+      </div>
+
+      <!-- Community column -->
+      <div class="footer-col">
+        <p class="footer-col-title">Community</p>
+        <a href="https://github.com/VIKAS-REREAL/REREAL-Spitit" target="_blank" class="footer-link">GitHub</a>
+        <a href="https://github.com/VIKAS-REREAL/REREAL-Spitit" target="_blank" class="footer-link">Open Source</a>
+        <a href="https://github.com/VIKAS-REREAL/REREAL-Spitit" target="_blank" class="footer-link">MIT License</a>
+      </div>
+
+    </div>
+
+    <!-- Bottom legal bar -->
+    <div class="footer-bottom">
+      <p class="footer-copy">&copy; 2026 Spitit by REREAL. All rights reserved.</p>
+      <p class="footer-version">v2.0.2 &middot; Free &middot; Windows 10 &amp; 11</p>
+    </div>
+
+  </footer>
+
+  <script>
+    // Pill state cycling
+    const pillStates = [
+      { text: 'Recording', color: '#FFD505' },
+      { text: 'Transcribing…', color: '#86EFAC' },
+      { text: '✓ 8 words', color: '#FFD505' }
+    ];
+    let si = 0;
+    const pillTxt = document.getElementById('pill-txt');
+    const pillBars = document.querySelectorAll('.pill-bar');
+    setInterval(() => {
+      si = (si + 1) % pillStates.length;
+      pillTxt.textContent = pillStates[si].text;
+      pillBars.forEach(b => b.style.background = pillStates[si].color);
+    }, 2800);
+  </script>
+
+</body>
+
 </html>

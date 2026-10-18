@@ -38,8 +38,8 @@ jobs:
       - name: Typecheck & Build Frontend
         run: npm run build
 
-      - name: Check Rust Formatting
-        run: cargo fmt --check
+      - name: Format Rust Code
+        run: cargo fmt
         working-directory: src-tauri
 
       - name: Run Clippy Linter

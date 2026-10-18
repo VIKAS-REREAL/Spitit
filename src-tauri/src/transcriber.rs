@@ -130,7 +130,9 @@ pub async fn transcribe(
     // Apply language-specific configuration
     match language {
         "en" => {
-            form = form.text("language", "en").text("prompt", ENGLISH_WHISPER_PROMPT);
+            form = form
+                .text("language", "en")
+                .text("prompt", ENGLISH_WHISPER_PROMPT);
         }
         "hi" => {
             form = form.text("language", "hi");
@@ -161,9 +163,13 @@ pub async fn transcribe(
         Ok(r) => r,
         Err(e) => {
             if e.is_timeout() {
-                return Err("ERR_NETWORK: Transcription timed out. Check your internet connection.".into());
+                return Err(
+                    "ERR_NETWORK: Transcription timed out. Check your internet connection.".into(),
+                );
             } else if e.is_connect() {
-                return Err("ERR_NETWORK: No internet connection. Could not reach Groq API.".into());
+                return Err(
+                    "ERR_NETWORK: No internet connection. Could not reach Groq API.".into(),
+                );
             } else {
                 return Err(format!("ERR_NETWORK: Network failure: {e}"));
             }
@@ -172,11 +178,15 @@ pub async fn transcribe(
 
     let status = resp.status();
     if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-        return Err("ERR_RATE_LIMIT: Groq rate limit reached (HTTP 429). Please wait a moment.".into());
+        return Err(
+            "ERR_RATE_LIMIT: Groq rate limit reached (HTTP 429). Please wait a moment.".into(),
+        );
     }
 
     if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
-        return Err("ERR_INVALID_KEY: Invalid Groq API key. Please check your key in Settings.".into());
+        return Err(
+            "ERR_INVALID_KEY: Invalid Groq API key. Please check your key in Settings.".into(),
+        );
     }
 
     if !status.is_success() {
@@ -202,7 +212,9 @@ pub async fn transcribe(
     }
 
     // Hinglish post-processing through Groq LLM: runs for hinglish mode or if Devanagari script is detected
-    let has_devanagari = raw_text.chars().any(|c| ('\u{0900}'..='\u{097F}').contains(&c));
+    let has_devanagari = raw_text
+        .chars()
+        .any(|c| ('\u{0900}'..='\u{097F}').contains(&c));
     if language == "hinglish" || has_devanagari {
         raw_text = hinglish_cleanup(&client, trimmed_key, &raw_text).await;
     }
