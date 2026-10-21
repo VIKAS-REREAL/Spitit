@@ -85,9 +85,12 @@ jobs:
           # Copy Portable executable with fixed versioned naming
           cp src-tauri/target/release/spitit-v3.exe release-artifacts/Spitit_${{ env.VERSION }}_portable.exe 2>/dev/null || cp src-tauri/target/release/Spitit.exe release-artifacts/Spitit_${{ env.VERSION }}_portable.exe 2>/dev/null || true
 
-          # Compute SHA-256 Checksums
+          # Copy install-certificate helper script if present
+          cp msix/install-certificate.ps1 release-artifacts/ 2>/dev/null || true
+
+          # Compute SHA-256 Checksums for all release assets
           cd release-artifacts
-          sha256sum Spitit_${{ env.VERSION }}_x64-setup.exe Spitit_${{ env.VERSION }}_portable.exe Spitit_${{ env.VERSION }}_x64.msix > SHA256SUMS.txt
+          sha256sum $(ls -1 Spitit_${{ env.VERSION }}_* 2>/dev/null) > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Create GitHub Release
@@ -101,15 +104,25 @@ jobs:
             release-artifacts/Spitit_${{ env.VERSION }}_x64-setup.exe
             release-artifacts/Spitit_${{ env.VERSION }}_portable.exe
             release-artifacts/Spitit_${{ env.VERSION }}_x64.msix
+            release-artifacts/Spitit_${{ env.VERSION }}_cert.cer
+            release-artifacts/install-certificate.ps1
             release-artifacts/SHA256SUMS.txt
           body: |
             ## Spitit v${{ env.VERSION }}
             
             ### Official Downloads (Windows 10 & 11, 64-bit)
-            - **Installer (NSIS Setup):** `Spitit_${{ env.VERSION }}_x64-setup.exe`
+            - **Installer (NSIS Setup - Recommended):** `Spitit_${{ env.VERSION }}_x64-setup.exe`
             - **Standalone Portable:** `Spitit_${{ env.VERSION }}_portable.exe`
-            - **Microsoft Store / Partner Center (MSIX):** `Spitit_${{ env.VERSION }}_x64.msix`
+            - **Signed MSIX Package:** `Spitit_${{ env.VERSION }}_x64.msix`
+            - **Companion Certificate:** `Spitit_${{ env.VERSION }}_cert.cer` *(for MSIX sideloading)*
+            - **Certificate Installer:** `install-certificate.ps1`
             - **Checksums:** `SHA256SUMS.txt`
+            
+            ### Installing the MSIX Package
+            - **Via Microsoft Store:** No extra steps required.
+            - **Direct Download (Sideloading):**
+              1. Right-click `install-certificate.ps1` and choose **Run with PowerShell** (or open `Spitit_${{ env.VERSION }}_cert.cer` -> Install Certificate -> Local Machine -> Trusted Root Certification Authorities).
+              2. Double-click `Spitit_${{ env.VERSION }}_x64.msix` to install.
             
             ### Verification
             Verify the integrity of downloaded files with PowerShell:

@@ -90,7 +90,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Spitit_3.0.0_x64_MSIX
-          path: build-artifacts/*.msix
+          path: |
+            build-artifacts/*.msix
+            build-artifacts/*.cer
+            build-artifacts/install-certificate.ps1
           retention-days: 30
 
       - name: Upload All Windows Build Artifacts

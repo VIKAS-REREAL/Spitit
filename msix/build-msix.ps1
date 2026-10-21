@@ -5,7 +5,10 @@ param(
     [string]$PublisherDisplayName = "Vikas Nath - REREAL",
     [string]$DisplayName = "Spitit",
     [string]$ExePath = "",
-    [string]$OutputDir = "release-artifacts"
+    [string]$OutputDir = "release-artifacts",
+    [string]$PfxPath = "",
+    [string]$PfxPassword = "",
+    [switch]$SkipSign = $false
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,6 +21,8 @@ Write-Host "Publisher Display Name: $PublisherDisplayName"
 
 # Locate makeappx.exe from Windows SDK
 $makeAppx = ""
+$signTool = ""
+
 $sdkCommand = Get-Command makeappx.exe -ErrorAction SilentlyContinue
 if ($sdkCommand) {
     $makeAppx = $sdkCommand.Source
@@ -45,6 +50,41 @@ if (-not $makeAppx -or -not (Test-Path $makeAppx)) {
 }
 
 Write-Host "Found makeappx.exe at: $makeAppx"
+
+# Locate signtool.exe from Windows SDK
+$signCommand = Get-Command signtool.exe -ErrorAction SilentlyContinue
+if ($signCommand) {
+    $signTool = $signCommand.Source
+} elseif ($makeAppx) {
+    $candidate = Join-Path (Split-Path $makeAppx) "signtool.exe"
+    if (Test-Path $candidate) {
+        $signTool = $candidate
+    }
+}
+
+if (-not $signTool -or -not (Test-Path $signTool)) {
+    $sdkPaths = @(
+        "C:\Program Files (x86)\Windows Kits\10\bin",
+        "C:\Program Files\Windows Kits\10\bin"
+    )
+    foreach ($path in $sdkPaths) {
+        if (Test-Path $path) {
+            $foundSign = Get-ChildItem -Path $path -Filter "signtool.exe" -Recurse -ErrorAction SilentlyContinue |
+                Where-Object { $_.FullName -like "*x64*" } |
+                Select-Object -First 1
+            if ($foundSign) {
+                $signTool = $foundSign.FullName
+                break
+            }
+        }
+    }
+}
+
+if ($signTool) {
+    Write-Host "Found signtool.exe at: $signTool"
+} else {
+    Write-Warning "signtool.exe not found in Windows Kits SDK."
+}
 
 # Locate executable
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -148,10 +188,79 @@ if ($LASTEXITCODE -ne 0) {
 # Clean layout folder
 Remove-Item -Path $layoutDir -Recurse -Force
 
-if (Test-Path $outputMsix) {
-    $size = (Get-Item $outputMsix).Length
-    Write-Host "MSIX Package built successfully: $outputMsix ($([math]::Round($size / 1MB, 2)) MB)"
-} else {
+if (-not (Test-Path $outputMsix)) {
     Write-Error "MSIX output file was not created!"
     exit 1
 }
+
+$size = (Get-Item $outputMsix).Length
+Write-Host "MSIX Package packed: $outputMsix ($([math]::Round($size / 1MB, 2)) MB)"
+
+# Digitally sign MSIX package
+if (-not $SkipSign) {
+    if ($signTool -and (Test-Path $signTool)) {
+        Write-Host "=== Digitally Signing MSIX Package ==="
+        $cerOutput = Join-Path $OutputDir "Spitit_${cleanVer}_cert.cer"
+
+        if ($PfxPath -and (Test-Path $PfxPath)) {
+            Write-Host "Signing MSIX with provided PFX: $PfxPath"
+            if ($PfxPassword) {
+                & $signTool sign /fd SHA256 /f $PfxPath /p $PfxPassword $outputMsix
+            } else {
+                & $signTool sign /fd SHA256 /f $PfxPath $outputMsix
+            }
+        } else {
+            Write-Host "No custom PFX certificate provided. Generating self-signed signing certificate for '$Publisher'..."
+            $cert = New-SelfSignedCertificate `
+                -Type Custom `
+                -Subject $Publisher `
+                -KeyUsage DigitalSignature `
+                -FriendlyName "Spitit App Package Signing" `
+                -CertStoreLocation "Cert:\CurrentUser\My" `
+                -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.19={text}")
+
+            # Export companion public certificate (.cer) for installation into Trusted Root
+            Export-Certificate -Cert $cert -FilePath $cerOutput -Force | Out-Null
+            Write-Host "Exported companion public certificate: $cerOutput"
+
+            # Export temporary PFX for reliable SignTool invocation
+            $tempPfx = Join-Path $OutputDir "temp_signing.pfx"
+            $tempSecret = [System.Guid]::NewGuid().ToString()
+            $secureSecret = ConvertTo-SecureString $tempSecret -AsPlainText -Force
+            Export-PfxCertificate -Cert $cert -FilePath $tempPfx -Password $secureSecret | Out-Null
+
+            Write-Host "Signing MSIX with signtool.exe..."
+            & $signTool sign /fd SHA256 /f $tempPfx /p $tempSecret $outputMsix
+            $signExitCode = $LASTEXITCODE
+
+            # Securely remove temporary PFX file
+            if (Test-Path $tempPfx) {
+                Remove-Item -Path $tempPfx -Force
+            }
+
+            # Clean temporary cert from CurrentUser store
+            if ($cert -and $cert.Thumbprint) {
+                Remove-Item -Path "Cert:\CurrentUser\My\$($cert.Thumbprint)" -Force -ErrorAction SilentlyContinue
+            }
+
+            if ($signExitCode -ne 0) {
+                Write-Error "signtool failed to sign the MSIX package (Exit code: $signExitCode)."
+                exit $signExitCode
+            }
+        }
+
+        Write-Host "MSIX package signed successfully! Digital signature is attached."
+    } else {
+        Write-Warning "signtool.exe not found in Windows SDK. MSIX remains unsigned."
+    }
+} else {
+    Write-Host "SkipSign specified. MSIX package left unsigned."
+}
+
+# Copy companion certificate installer helper if available
+$installerHelper = Join-Path $PSScriptRoot "install-certificate.ps1"
+if (Test-Path $installerHelper) {
+    Copy-Item -Path $installerHelper -Destination (Join-Path $OutputDir "install-certificate.ps1") -Force
+}
+
+Write-Host "MSIX build and package process completed successfully."
