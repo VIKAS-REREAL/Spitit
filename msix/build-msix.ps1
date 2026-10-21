@@ -122,7 +122,7 @@ $manifestContent = $manifestContent.Replace("{{DISPLAY_NAME}}", $DisplayName)
 $manifestContent = $manifestContent.Replace("{{PUBLISHER_DISPLAY_NAME}}", $PublisherDisplayName)
 
 $manifestDest = Join-Path $layoutDir "AppxManifest.xml"
-Set-Content -Path $manifestDest -Value $manifestContent -Encoding Utf8
+[System.IO.File]::WriteAllText($manifestDest, $manifestContent, [System.Text.UTF8Encoding]::new($false))
 Write-Host "Generated AppxManifest.xml successfully."
 
 # Ensure output directory exists
@@ -139,6 +139,8 @@ if (Test-Path $outputMsix) {
 Write-Host "Packing MSIX with makeappx..."
 & $makeAppx pack /d $layoutDir /p $outputMsix /nv /o
 if ($LASTEXITCODE -ne 0) {
+    Write-Host "makeappx failed with exit code $LASTEXITCODE. Displaying manifest contents for debugging:"
+    Get-Content $manifestDest | ForEach-Object { Write-Host $_ }
     Write-Error "makeappx failed with exit code $LASTEXITCODE"
     exit $LASTEXITCODE
 }
