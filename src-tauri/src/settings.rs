@@ -32,9 +32,6 @@ pub struct UserSettings {
     pub pill_x: Option<i32>,
     #[serde(default)]
     pub pill_y: Option<i32>,
-    /// Target translation language code (e.g. "hi", "es"). Empty string = no translation.
-    #[serde(default)]
-    pub translate_to: String,
 }
 
 fn default_hotkey_preset() -> u8 {
@@ -73,7 +70,6 @@ impl Default for UserSettings {
             onboarding_completed: true,
             pill_x: None,
             pill_y: None,
-            translate_to: String::new(),
         }
     }
 }

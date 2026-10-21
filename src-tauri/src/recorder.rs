@@ -528,12 +528,14 @@ fn run_audio_worker<FLevel, FCountdown, FAutoStop>(
                             }
                             let rms = (sum_sq / window_size as f64).sqrt() as f32;
 
-                            // Apply noise floor gate & gentle boost for visible animation
-                            let normalized = if rms < DEFAULT_SILENCE_THRESHOLD {
+                            // Apply noise floor gate & perceptual loudness scaling
+                            // Non-linear power response ensures quiet speech, headsets, and whispers
+                            // trigger visible dynamic wave motion, while loud speech caps cleanly at 1.0.
+                            let normalized = if rms <= DEFAULT_SILENCE_THRESHOLD {
                                 0.0
                             } else {
-                                // Scale [threshold .. 0.15] to [0.0 .. 1.0]
-                                ((rms - DEFAULT_SILENCE_THRESHOLD) / 0.12).clamp(0.0, 1.0)
+                                let diff = (rms - DEFAULT_SILENCE_THRESHOLD).max(0.0);
+                                ((diff / 0.035).sqrt()).clamp(0.0, 1.0)
                             };
                             on_mic_level(normalized);
                         } else {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import "./Pill.css";
 
 export type PillState = "recording" | "silent" | "processing" | "done" | "error" | "cancelled";
@@ -83,18 +83,68 @@ export const Pill: React.FC<PillProps> = ({
     );
   };
 
-  // Waveform bars dynamic scaling based on real voice level
-  // Bars stay calm (minimal resting 3px) when silent, and surge up with voice (up to 16px)
+  const micLevelRef = useRef(micLevel);
+  useEffect(() => {
+    micLevelRef.current = micLevel;
+  }, [micLevel]);
+
+  const bar0Ref = useRef<HTMLSpanElement>(null);
+  const bar1Ref = useRef<HTMLSpanElement>(null);
+  const bar2Ref = useRef<HTMLSpanElement>(null);
+  const bar3Ref = useRef<HTMLSpanElement>(null);
+  const bar4Ref = useRef<HTMLSpanElement>(null);
+
+  // Dynamic 60 FPS voice-reactive wave loop (gentle idle ripple + energetic voice shake)
+  useEffect(() => {
+    if (state !== "recording") return;
+
+    let animId: number;
+    let smoothedLevel = 0;
+    const barWeights = [0.65, 0.92, 1.0, 0.88, 0.60];
+    const phaseOffsets = [0.0, 1.3, 2.7, 4.1, 5.4];
+    const barRefs = [bar0Ref, bar1Ref, bar2Ref, bar3Ref, bar4Ref];
+
+    const animate = (timestamp: number) => {
+      const t = timestamp * 0.001;
+      const target = Math.max(0, Math.min(1, micLevelRef.current));
+
+      // Snappy attack on voice phonemes, smooth decay on pauses
+      const attackSpeed = target > smoothedLevel ? 0.45 : 0.22;
+      smoothedLevel += (target - smoothedLevel) * attackSpeed;
+
+      const isSpeaking = smoothedLevel > 0.035;
+
+      barRefs.forEach((ref, i) => {
+        const el = ref.current;
+        if (!el) return;
+
+        // Idle breathing ripple (3.0px - 4.5px gentle wave so it is never frozen or static)
+        const idleWave = Math.sin(t * 3.8 + phaseOffsets[i]) * 0.85 + 3.4;
+
+        // High-frequency voice flutter and harmonic shake
+        const flutter = (
+          Math.sin(t * 22.0 + phaseOffsets[i] * 2.1) * 0.45 +
+          Math.sin(t * 36.0 + phaseOffsets[i] * 3.4) * 0.35 +
+          Math.sin(t * 14.0 + phaseOffsets[i]) * 0.20
+        );
+
+        // Voice surge height (up to ~16.5px)
+        const voiceMax = 13.0 * barWeights[i];
+        const voiceHeight = smoothedLevel * voiceMax * (0.75 + 0.35 * flutter);
+
+        const finalHeight = Math.min(17.5, Math.max(2.8, idleWave + voiceHeight));
+        el.style.height = `${finalHeight.toFixed(1)}px`;
+        el.style.opacity = isSpeaking ? "1" : (0.45 + 0.15 * barWeights[i]).toFixed(2);
+      });
+
+      animId = requestAnimationFrame(animate);
+    };
+
+    animId = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animId);
+  }, [state]);
+
   const clampedLevel = Math.max(0, Math.min(1, micLevel));
-  const baseResting = 3.2; // minimal resting state
-  const maxDynamic = 12.8; // dynamic range
-
-  const b1Height = `${(baseResting + clampedLevel * maxDynamic * 0.65).toFixed(1)}px`;
-  const b2Height = `${(baseResting + clampedLevel * maxDynamic * 0.90).toFixed(1)}px`;
-  const b3Height = `${(baseResting + clampedLevel * maxDynamic * 1.00).toFixed(1)}px`;
-  const b4Height = `${(baseResting + clampedLevel * maxDynamic * 0.85).toFixed(1)}px`;
-  const b5Height = `${(baseResting + clampedLevel * maxDynamic * 0.60).toFixed(1)}px`;
-
   const beamClass = state === "recording" && enableEdgeAnimation ? "has-beam" : "";
 
   return (
@@ -126,26 +176,11 @@ export const Pill: React.FC<PillProps> = ({
             {renderAppIcon()}
 
             <div className="pill-wave-wrap">
-              <span
-                className="pill-wave-bar"
-                style={{ height: b1Height, opacity: clampedLevel > 0.05 ? 1 : 0.45 }}
-              />
-              <span
-                className="pill-wave-bar"
-                style={{ height: b2Height, opacity: clampedLevel > 0.05 ? 1 : 0.55 }}
-              />
-              <span
-                className="pill-wave-bar"
-                style={{ height: b3Height, opacity: clampedLevel > 0.05 ? 1 : 0.65 }}
-              />
-              <span
-                className="pill-wave-bar"
-                style={{ height: b4Height, opacity: clampedLevel > 0.05 ? 1 : 0.55 }}
-              />
-              <span
-                className="pill-wave-bar"
-                style={{ height: b5Height, opacity: clampedLevel > 0.05 ? 1 : 0.45 }}
-              />
+              <span ref={bar0Ref} className="pill-wave-bar" style={{ height: "3.4px" }} />
+              <span ref={bar1Ref} className="pill-wave-bar" style={{ height: "4.2px" }} />
+              <span ref={bar2Ref} className="pill-wave-bar" style={{ height: "4.8px" }} />
+              <span ref={bar3Ref} className="pill-wave-bar" style={{ height: "4.2px" }} />
+              <span ref={bar4Ref} className="pill-wave-bar" style={{ height: "3.4px" }} />
             </div>
 
             <span className={`pill-timer ${countdownRemaining !== null ? "countdown" : ""}`}>

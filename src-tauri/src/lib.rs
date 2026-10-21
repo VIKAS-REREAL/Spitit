@@ -720,9 +720,12 @@ pub fn run() {
 
     let handle_level = Arc::clone(&app_handle_for_audio);
     let on_level = move |level: f32| {
-        if let Ok(lock) = handle_level.try_lock() {
+        if let Ok(lock) = handle_level.lock() {
             if let Some(handle) = lock.as_ref() {
                 let _ = handle.emit("mic_level", level);
+                if let Some(pill_win) = handle.get_webview_window("pill") {
+                    let _ = pill_win.emit("mic_level", level);
+                }
             }
         }
     };
@@ -1013,30 +1016,7 @@ pub fn run() {
                             // Asynchronous transcription & paste task: hotkey event loop is NEVER blocked!
                             rt.spawn(async move {
                                 match transcriber::transcribe(wav_bytes, &key, &lang).await {
-                                    Ok(raw_text) => {
-                                        // Translation step: if user has set a target language that
-                                        // differs from the recording language, translate the text.
-                                        let text = {
-                                            let target = settings_clone.translate_to.trim().to_string();
-                                            let is_valid_target = !target.is_empty()
-                                                && target != "none"
-                                                && target != lang; // skip if same as recording lang
-                                            if is_valid_target {
-                                                let xlate_client = reqwest::Client::builder()
-                                                    .timeout(std::time::Duration::from_secs(30))
-                                                    .build()
-                                                    .unwrap_or_default();
-                                                transcriber::translate_text(
-                                                    &xlate_client,
-                                                    &key,
-                                                    &raw_text,
-                                                    &target,
-                                                )
-                                                .await
-                                            } else {
-                                                raw_text
-                                            }
-                                        };
+                                    Ok(text) => {
 
                                         // 1. Paste into target window
                                         let paste_res = paster::paste_text(

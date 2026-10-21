@@ -66,7 +66,6 @@ interface UserSettings {
   save_history: boolean;
   keep_stats: boolean;
   onboarding_completed: boolean;
-  translate_to: string;
 }
 
 export interface HotkeyPreset {
@@ -134,7 +133,6 @@ const DEFAULT_SETTINGS: UserSettings = {
   save_history: true,
   keep_stats: true,
   onboarding_completed: true,
-  translate_to: "",
 };
 
 export default function App() {
@@ -1005,80 +1003,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Translation Output Section */}
-              <div className="win-card" style={{ marginTop: 16 }}>
-                <div className="win-card-row" style={{ alignItems: "flex-start", gap: 16 }}>
-                  <div style={{ flex: 1 }}>
-                    <h3 className="win-card-title">Translate Output To</h3>
-                    <p className="win-card-desc">
-                      After transcription, automatically translate your words into the selected language before pasting.
-                      Powered by <strong>LLaMA 3.3 70B</strong> (Groq) with LLaMA 3.1 8B fallback.
-                      Set to <em>No Translation</em> to paste as-is.
-                    </p>
-                  </div>
-                  <div style={{ minWidth: 220 }}>
-                    <select
-                      className="win-input"
-                      style={{ width: "100%", cursor: "pointer" }}
-                      value={settings.translate_to || ""}
-                      onChange={(e) => updateSetting("translate_to", e.target.value)}
-                    >
-                      <option value="">No Translation (default)</option>
-                      <optgroup label="Popular">
-                        <option value="hi">→ Hindi (हिन्दी)</option>
-                        <option value="en">→ English</option>
-                        <option value="es">→ Spanish (Español)</option>
-                        <option value="fr">→ French (Français)</option>
-                        <option value="de">→ German (Deutsch)</option>
-                        <option value="ar">→ Arabic (العربية)</option>
-                        <option value="zh">→ Chinese Simplified (中文)</option>
-                        <option value="ja">→ Japanese (日本語)</option>
-                        <option value="ko">→ Korean (한국어)</option>
-                        <option value="pt">→ Portuguese (Português)</option>
-                        <option value="ru">→ Russian (Русский)</option>
-                      </optgroup>
-                      <optgroup label="Indian Languages">
-                        <option value="bn">→ Bengali (বাংলা)</option>
-                        <option value="gu">→ Gujarati (ગુજરાતી)</option>
-                        <option value="kn">→ Kannada (ಕನ್ನಡ)</option>
-                        <option value="ml">→ Malayalam (മലയാളം)</option>
-                        <option value="mr">→ Marathi (मराठी)</option>
-                        <option value="pa">→ Punjabi (ਪੰਜਾਬੀ)</option>
-                        <option value="ta">→ Tamil (தமிழ்)</option>
-                        <option value="te">→ Telugu (తెలుగు)</option>
-                        <option value="ur">→ Urdu (اردو)</option>
-                      </optgroup>
-                      <optgroup label="European">
-                        <option value="cs">→ Czech (Čeština)</option>
-                        <option value="da">→ Danish (Dansk)</option>
-                        <option value="el">→ Greek (Ελληνικά)</option>
-                        <option value="fi">→ Finnish (Suomi)</option>
-                        <option value="hu">→ Hungarian (Magyar)</option>
-                        <option value="it">→ Italian (Italiano)</option>
-                        <option value="nl">→ Dutch (Nederlands)</option>
-                        <option value="no">→ Norwegian (Norsk)</option>
-                        <option value="pl">→ Polish (Polski)</option>
-                        <option value="ro">→ Romanian (Română)</option>
-                        <option value="sk">→ Slovak (Slovenčina)</option>
-                        <option value="sv">→ Swedish (Svenska)</option>
-                        <option value="tr">→ Turkish (Türkçe)</option>
-                        <option value="uk">→ Ukrainian (Українська)</option>
-                      </optgroup>
-                      <optgroup label="Asian">
-                        <option value="id">→ Indonesian (Bahasa Indonesia)</option>
-                        <option value="ms">→ Malay (Bahasa Melayu)</option>
-                        <option value="th">→ Thai (ภาษาไทย)</option>
-                        <option value="vi">→ Vietnamese (Tiếng Việt)</option>
-                      </optgroup>
-                    </select>
-                    {settings.translate_to && (
-                      <p style={{ fontSize: "11px", color: "var(--win-accent)", marginTop: 6 }}>
-                        ⚡ Speak in any language → output pasted in the language above
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
             </div>
           )}
 

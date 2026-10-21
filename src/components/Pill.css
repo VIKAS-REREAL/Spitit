@@ -182,7 +182,7 @@
   width: 2.4px;
   border-radius: 2px;
   background: #ffffff;
-  transition: height 45ms ease-out, opacity 60ms ease-out;
+  transition: opacity 80ms ease-out;
   will-change: height, opacity;
 }
 
