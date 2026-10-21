@@ -26,7 +26,8 @@ use tauri::{
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
+    GetMonitorInfoW, MonitorFromPoint, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONULL,
+    MONITOR_DEFAULTTOPRIMARY,
 };
 use windows::Win32::System::Registry::{
     RegCloseKey, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW,
@@ -105,7 +106,11 @@ pub fn bring_main_window_to_front(app: &tauri::AppHandle) {
     }
 }
 
-pub fn configure_pill_window(pill_win: &tauri::WebviewWindow) {
+pub fn configure_pill_window(
+    pill_win: &tauri::WebviewWindow,
+    saved_x: Option<i32>,
+    saved_y: Option<i32>,
+) {
     if let Ok(raw_hwnd) = pill_win.hwnd() {
         let hwnd = HWND(raw_hwnd.0 as _);
         unsafe {
@@ -136,12 +141,42 @@ pub fn configure_pill_window(pill_win: &tauri::WebviewWindow) {
             );
 
             // 3. Position pill on active monitor with proper DPI scaling
-            position_pill_on_monitor(hwnd);
+            position_pill_on_monitor(hwnd, saved_x, saved_y);
         }
     }
 }
 
-pub unsafe fn position_pill_on_monitor(hwnd: HWND) {
+pub unsafe fn position_pill_on_monitor(hwnd: HWND, saved_x: Option<i32>, saved_y: Option<i32>) {
+    let dpi = GetDpiForWindow(hwnd);
+    let scale = if dpi > 0 { dpi as f32 / 96.0 } else { 1.0 };
+
+    let pill_w = (148.0 * scale) as i32;
+    let pill_h = (32.0 * scale) as i32;
+
+    let (x, y) = if let (Some(sx), Some(sy)) = (saved_x, saved_y) {
+        let pt = POINT { x: sx, y: sy };
+        let hmon_at_pt = MonitorFromPoint(pt, MONITOR_DEFAULTTONULL);
+        if hmon_at_pt.0 != 0 {
+            (sx, sy)
+        } else {
+            get_default_pill_position(hwnd, pill_w, pill_h)
+        }
+    } else {
+        get_default_pill_position(hwnd, pill_w, pill_h)
+    };
+
+    let _ = SetWindowPos(
+        hwnd,
+        HWND_TOPMOST,
+        x,
+        y,
+        pill_w,
+        pill_h,
+        SWP_NOACTIVATE | SWP_HIDEWINDOW,
+    );
+}
+
+unsafe fn get_default_pill_position(hwnd: HWND, pill_w: i32, pill_h: i32) -> (i32, i32) {
     let hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY);
     let mut mi = MONITORINFO {
         cbSize: std::mem::size_of::<MONITORINFO>() as u32,
@@ -167,20 +202,9 @@ pub unsafe fn position_pill_on_monitor(hwnd: HWND) {
     let dpi = GetDpiForWindow(hwnd);
     let scale = if dpi > 0 { dpi as f32 / 96.0 } else { 1.0 };
 
-    let pill_w = (160.0 * scale) as i32;
-    let pill_h = (38.0 * scale) as i32;
     let x = base_x + (screen_w - pill_w) / 2;
     let y = base_y + screen_h - pill_h - (24.0 * scale) as i32;
-
-    let _ = SetWindowPos(
-        hwnd,
-        HWND_TOPMOST,
-        x,
-        y,
-        pill_w,
-        pill_h,
-        SWP_NOACTIVATE | SWP_HIDEWINDOW,
-    );
+    (x, y)
 }
 
 pub fn configure_tray_popup_window(window: &tauri::WebviewWindow) {
@@ -238,15 +262,29 @@ fn close_window(app: tauri::AppHandle) {
 }
 
 #[tauri::command]
-fn reset_pill_position(app: tauri::AppHandle) -> Result<(), String> {
+fn reset_pill_position(state: tauri::State<AppState>, app: tauri::AppHandle) -> Result<(), String> {
+    {
+        let mut s = state.settings.lock().unwrap();
+        s.pill_x = None;
+        s.pill_y = None;
+        let _ = settings::save_settings(&s);
+    }
     if let Some(pill_win) = app.get_webview_window("pill") {
         if let Ok(raw_hwnd) = pill_win.hwnd() {
             unsafe {
-                position_pill_on_monitor(HWND(raw_hwnd.0 as _));
+                position_pill_on_monitor(HWND(raw_hwnd.0 as _), None, None);
             }
         }
     }
     Ok(())
+}
+
+#[tauri::command]
+fn save_pill_position(state: tauri::State<AppState>, x: i32, y: i32) -> Result<(), String> {
+    let mut s = state.settings.lock().unwrap();
+    s.pill_x = Some(x);
+    s.pill_y = Some(y);
+    settings::save_settings(&s)
 }
 
 #[tauri::command]
@@ -504,8 +542,13 @@ fn set_autostart_enabled(enabled: bool) -> Result<(), String> {
 
         let res = if enabled {
             let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
+            let mut exe_str = current_exe.to_string_lossy().to_string();
+            // Strip Windows \\?\ extended prefix if present
+            if exe_str.starts_with(r"\\?\") {
+                exe_str = exe_str[4..].to_string();
+            }
             // Pass --autostart flag so launch starts silently in system tray without splash
-            let val = format!("\"{}\" --autostart", current_exe.to_string_lossy());
+            let val = format!("\"{}\" --autostart", exe_str);
             let val_w: Vec<u16> = val.encode_utf16().chain(std::iter::once(0)).collect();
             let bytes = std::slice::from_raw_parts(val_w.as_ptr() as *const u8, val_w.len() * 2);
             RegSetValueExW(hkey, PCWSTR(name.as_ptr()), 0, REG_SZ, Some(bytes))
@@ -552,6 +595,17 @@ fn reset_stats(state: tauri::State<AppState>) -> Result<(), String> {
 #[tauri::command]
 fn hide_pill_window(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(win) = app.get_webview_window("pill") {
+        if let Ok(pos) = win.outer_position() {
+            if let Some(state) = app.try_state::<AppState>() {
+                if let Ok(mut s) = state.settings.lock() {
+                    if s.pill_x != Some(pos.x) || s.pill_y != Some(pos.y) {
+                        s.pill_x = Some(pos.x);
+                        s.pill_y = Some(pos.y);
+                        let _ = settings::save_settings(&s);
+                    }
+                }
+            }
+        }
         let _ = win.hide();
     }
     Ok(())
@@ -659,10 +713,15 @@ pub fn run() {
                 }
             }
 
+            // Dynamically self-heal autostart registration if enabled
+            if initial_settings.start_with_windows {
+                let _ = set_autostart_enabled(true);
+            }
+
             // Show main window ONLY if:
             // 1. Not launching silently via Windows startup (--autostart)
-            // 2. AND (API key is not configured OR onboarding is not completed)
-            if !is_autostart_launch && (init_key.is_empty() || !initial_settings.onboarding_completed) {
+            // 2. AND API key is not configured
+            if !is_autostart_launch && init_key.is_empty() {
                 bring_main_window_to_front(&handle);
             }
 
@@ -767,7 +826,7 @@ pub fn run() {
 
             // Configure Pill window
             if let Some(pill_win) = app.get_webview_window("pill") {
-                configure_pill_window(&pill_win);
+                configure_pill_window(&pill_win, initial_settings.pill_x, initial_settings.pill_y);
             }
 
             // Configure Tray Popup window
@@ -885,7 +944,31 @@ pub fn run() {
                             // Asynchronous transcription & paste task: hotkey event loop is NEVER blocked!
                             rt.spawn(async move {
                                 match transcriber::transcribe(wav_bytes, &key, &lang).await {
-                                    Ok(text) => {
+                                    Ok(raw_text) => {
+                                        // Translation step: if user has set a target language that
+                                        // differs from the recording language, translate the text.
+                                        let text = {
+                                            let target = settings_clone.translate_to.trim().to_string();
+                                            let is_valid_target = !target.is_empty()
+                                                && target != "none"
+                                                && target != lang; // skip if same as recording lang
+                                            if is_valid_target {
+                                                let xlate_client = reqwest::Client::builder()
+                                                    .timeout(std::time::Duration::from_secs(30))
+                                                    .build()
+                                                    .unwrap_or_default();
+                                                transcriber::translate_text(
+                                                    &xlate_client,
+                                                    &key,
+                                                    &raw_text,
+                                                    &target,
+                                                )
+                                                .await
+                                            } else {
+                                                raw_text
+                                            }
+                                        };
+
                                         // 1. Paste into target window
                                         let paste_res = paster::paste_text(
                                             &text,
@@ -965,6 +1048,7 @@ pub fn run() {
             is_autostart_enabled,
             set_autostart_enabled,
             reset_pill_position,
+            save_pill_position,
             start_pill_drag,
             open_settings_window,
             minimize_window,

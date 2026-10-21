@@ -6,12 +6,54 @@ use reqwest::multipart::{Form, Part};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-pub const MODEL_WHISPER: &str = "whisper-large-v3";
+pub const MODEL_WHISPER: &str = "whisper-large-v3-turbo";
 pub const MODEL_LLM_PRIMARY: &str = "llama-3.3-70b-versatile";
 pub const MODEL_LLM_FALLBACK: &str = "llama-3.1-8b-instant";
 
+/// Maps internal language codes to their full English display names for LLM translation prompts.
+pub const TRANSLATION_LANGUAGE_MAP: &[(&str, &str)] = &[
+    ("hi",  "Hindi"),
+    ("en",  "English"),
+    ("es",  "Spanish"),
+    ("fr",  "French"),
+    ("de",  "German"),
+    ("it",  "Italian"),
+    ("pt",  "Portuguese"),
+    ("ru",  "Russian"),
+    ("ja",  "Japanese"),
+    ("ko",  "Korean"),
+    ("zh",  "Chinese (Simplified)"),
+    ("ar",  "Arabic"),
+    ("bn",  "Bengali"),
+    ("tr",  "Turkish"),
+    ("ur",  "Urdu"),
+    ("vi",  "Vietnamese"),
+    ("pl",  "Polish"),
+    ("nl",  "Dutch"),
+    ("sv",  "Swedish"),
+    ("da",  "Danish"),
+    ("fi",  "Finnish"),
+    ("no",  "Norwegian"),
+    ("cs",  "Czech"),
+    ("sk",  "Slovak"),
+    ("ro",  "Romanian"),
+    ("hu",  "Hungarian"),
+    ("el",  "Greek"),
+    ("th",  "Thai"),
+    ("id",  "Indonesian"),
+    ("ms",  "Malay"),
+    ("uk",  "Ukrainian"),
+    ("ta",  "Tamil"),
+    ("te",  "Telugu"),
+    ("gu",  "Gujarati"),
+    ("mr",  "Marathi"),
+    ("kn",  "Kannada"),
+    ("ml",  "Malayalam"),
+    ("pa",  "Punjabi"),
+];
+
 pub const ENGLISH_WHISPER_PROMPT: &str = "\
-Dictation in clear English and Indian English. Clean spelling, proper punctuation, technical terms, everyday expressions, and natural phrasing.";
+Verbatim transcription in clear English. Transcribe every word exactly as spoken with proper capitalization, accurate spelling, and punctuation. Do not summarize or skip words.";
 
 pub const HINGLISH_WHISPER_PROMPT: &str = "\
 Transcribe Indian English and Hinglish in Roman/English script only (NOT Devanagari). \
@@ -125,6 +167,7 @@ pub async fn transcribe(
     let mut form = Form::new()
         .text("model", MODEL_WHISPER.to_string())
         .text("response_format", "text".to_string())
+        .text("temperature", "0.0")
         .part("file", file_part);
 
     // Apply language-specific configuration
@@ -266,6 +309,79 @@ pub async fn hinglish_cleanup(client: &reqwest::Client, api_key: &str, raw_text:
         }
     }
     raw_text.to_string()
+}
+
+/// Translate text into a target language using Groq LLM (llama-3.3-70b-versatile with llama-3.1-8b-instant fallback).
+/// `target_lang_code` is a BCP-47 code like "hi", "es", "fr", etc.
+/// Returns the translated text, or the original text if translation fails.
+pub async fn translate_text(
+    client: &reqwest::Client,
+    api_key: &str,
+    text: &str,
+    target_lang_code: &str,
+) -> String {
+    // Look up the display name for the language code
+    let lang_name = TRANSLATION_LANGUAGE_MAP
+        .iter()
+        .find(|(code, _)| *code == target_lang_code)
+        .map(|(_, name)| *name)
+        .unwrap_or(target_lang_code);
+
+    let system_prompt = format!(
+        "You are a professional real-time speech translator. \
+        The user has just dictated text. Your only job is to translate it into {}. \
+        RULES: \
+        1. Output ONLY the translated text — no explanations, no markdown, no commentary. \
+        2. Preserve the speaker's meaning, tone, and sentence structure as closely as possible. \
+        3. Do NOT add anything that was not in the original text. \
+        4. If the input is already in the target language, output it verbatim.",
+        lang_name
+    );
+
+    for model_name in [MODEL_LLM_PRIMARY, MODEL_LLM_FALLBACK] {
+        let payload = ChatCompletionRequest {
+            model: model_name.to_string(),
+            messages: vec![
+                ChatMessage {
+                    role: "system".to_string(),
+                    content: system_prompt.clone(),
+                },
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: text.to_string(),
+                },
+            ],
+            temperature: 0.1,
+            max_tokens: 2048,
+        };
+
+        if let Ok(resp) = client
+            .post("https://api.groq.com/openai/v1/chat/completions")
+            .bearer_auth(api_key.trim())
+            .json(&payload)
+            .send()
+            .await
+        {
+            if resp.status().is_success() {
+                if let Ok(body) = resp.json::<ChatCompletionResponse>().await {
+                    if let Some(choice) = body.choices.first() {
+                        let translated = choice.message.content.trim().to_string();
+                        let translated = translated.trim_matches('"').trim_matches('\'').trim();
+                        if !translated.is_empty() {
+                            return translated.to_string();
+                        }
+                    }
+                }
+            } else {
+                let status = resp.status();
+                let err = resp.text().await.unwrap_or_default();
+                eprintln!("[Spitit Translate LLM {model_name}] HTTP {status}: {err}");
+            }
+        }
+    }
+    // If all models fail, return original text so dictation still works
+    eprintln!("[Spitit] Translation failed for '{}', returning original text.", target_lang_code);
+    text.to_string()
 }
 
 /// Test connection to Groq API.

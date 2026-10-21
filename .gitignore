@@ -66,3 +66,13 @@ tmp_*
 *.njsproj
 *.sln
 *.sw?
+
+
+# Build & Packaging Artifacts
+/msix/layout/
+/release-artifacts/
+*.msix
+
+#Website extra pages
+/website/home.css
+/website/home.html

@@ -28,6 +28,13 @@ pub struct UserSettings {
     pub save_history: bool,
     pub keep_stats: bool,
     pub onboarding_completed: bool,
+    #[serde(default)]
+    pub pill_x: Option<i32>,
+    #[serde(default)]
+    pub pill_y: Option<i32>,
+    /// Target translation language code (e.g. "hi", "es"). Empty string = no translation.
+    #[serde(default)]
+    pub translate_to: String,
 }
 
 fn default_hotkey_preset() -> u8 {
@@ -63,7 +70,10 @@ impl Default for UserSettings {
             microphone_device: "System default".to_string(),
             save_history: true,
             keep_stats: true,
-            onboarding_completed: false,
+            onboarding_completed: true,
+            pill_x: None,
+            pill_y: None,
+            translate_to: String::new(),
         }
     }
 }

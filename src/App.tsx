@@ -66,6 +66,7 @@ interface UserSettings {
   save_history: boolean;
   keep_stats: boolean;
   onboarding_completed: boolean;
+  translate_to: string;
 }
 
 export interface HotkeyPreset {
@@ -132,7 +133,8 @@ const DEFAULT_SETTINGS: UserSettings = {
   microphone_device: "System default",
   save_history: true,
   keep_stats: true,
-  onboarding_completed: false,
+  onboarding_completed: true,
+  translate_to: "",
 };
 
 export default function App() {
@@ -156,16 +158,7 @@ export default function App() {
   const [micList, setMicList] = useState<AudioDeviceInfo[]>([]);
   const [liveMicLevel, setLiveMicLevel] = useState<number>(0);
   const [isClipHistoryOn, setIsClipHistoryOn] = useState<boolean>(true);
-
-
-
-  // Onboarding wizard state (Section 4.6)
-  const [showOnboarding, setShowOnboarding] = useState<boolean>(false);
-  const [onboardingStep, setOnboardingStep] = useState<number>(1);
-
-  // Dictation test sandbox
   const [testDictationText, setTestDictationText] = useState("");
-  const [isDictating, setIsDictating] = useState(false);
 
   const settingsRef = useRef(settings);
   useEffect(() => {
@@ -186,6 +179,7 @@ export default function App() {
         } else {
           setKeyStatusType("idle");
           setKeyStatus("Enter your Groq key to activate voice dictation");
+          setActiveTab("api_key");
         }
       })
       .catch(() => {});
@@ -195,9 +189,6 @@ export default function App() {
       .then((s) => {
         if (s) {
           setSettings(s);
-          if (!s.onboarding_completed) {
-            setShowOnboarding(true);
-          }
         }
       })
       .catch(() => {});
@@ -223,10 +214,6 @@ export default function App() {
       setLiveMicLevel(event.payload || 0);
     });
 
-    const unlistenState = listen<string>("recording_state", (event) => {
-      setIsDictating(event.payload === "recording");
-    });
-
     const unlistenMeta = listen<HistoryRecord>("transcript_meta", (event) => {
       if (event.payload?.text) {
         setTestDictationText(event.payload.text);
@@ -245,7 +232,6 @@ export default function App() {
     return () => {
       clearTimeout(splashTimer);
       unlistenLevel.then((f) => f());
-      unlistenState.then((f) => f());
       unlistenMeta.then((f) => f());
       unlistenLang.then((f) => f());
     };
@@ -371,11 +357,6 @@ export default function App() {
     invoke("open_windows_settings", { uri }).catch(() => {});
   };
 
-  const finishOnboarding = () => {
-    setShowOnboarding(false);
-    updateSetting("onboarding_completed", true);
-  };
-
   const currentPreset =
     HOTKEY_PRESETS.find((p) => p.id === (settings.hotkey_preset ?? 1)) ||
     HOTKEY_PRESETS[1];
@@ -397,314 +378,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Onboarding Wizard Modal (Section 4.6) */}
-      {showOnboarding && (
-        <div className="win-onboarding-overlay">
-          <div className="win-onboarding-modal">
-            <div className="win-onboarding-header">
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <img src="/icon.svg" alt="Spitit" width="22" height="22" />
-                <h3 style={{ fontSize: "15px", fontWeight: 600, color: "#fff" }}>
-                  Welcome to Spitit v3
-                </h3>
-              </div>
-              <div className="win-onboarding-steps">
-                {[1, 2, 3, 4, 5, 6].map((step) => (
-                  <span
-                    key={step}
-                    className={`win-step-dot ${onboardingStep === step ? "active" : ""} ${
-                      onboardingStep > step ? "completed" : ""
-                    }`}
-                  />
-                ))}
-              </div>
-            </div>
-
-            <div className="win-onboarding-body">
-              {/* Step 1: Welcome & Features */}
-              {onboardingStep === 1 && (
-                <div>
-                  <h2 style={{ fontSize: "18px", color: "#fff", marginBottom: 6 }}>
-                    Instant Speech-to-Text Anywhere
-                  </h2>
-                  <p style={{ fontSize: "13px", color: "var(--win-text-secondary)", marginBottom: 16 }}>
-                    Spitit enables seamless voice dictation directly into Notepad, VS Code, Slack,
-                    WhatsApp, and any Windows application without manual typing.
-                  </p>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                    <div style={{ padding: 12, borderRadius: 8, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
-                      <div style={{ fontSize: "13px", fontWeight: 600, color: "#FFD505", marginBottom: 4 }}>
-                        🎙️ Hold or Toggle
-                      </div>
-                      <div style={{ fontSize: "12px", color: "var(--win-text-secondary)" }}>
-                        Hold your shortcut while speaking, release to paste instantly.
-                      </div>
-                    </div>
-                    <div style={{ padding: 12, borderRadius: 8, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
-                      <div style={{ fontSize: "13px", fontWeight: 600, color: "#34C759", marginBottom: 4 }}>
-                        ⚡ Sub-Second Speed
-                      </div>
-                      <div style={{ fontSize: "12px", color: "var(--win-text-secondary)" }}>
-                        Whisper Large v3 Turbo on Groq cloud processes audio in milliseconds.
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Step 2: Groq API Key */}
-              {onboardingStep === 2 && (
-                <div>
-                  <h2 style={{ fontSize: "18px", color: "#fff", marginBottom: 6 }}>
-                    Connect Your Groq API Key
-                  </h2>
-                  <p style={{ fontSize: "13px", color: "var(--win-text-secondary)", marginBottom: 14 }}>
-                    Spitit uses your private Groq key stored only in Windows Credential Manager.
-                    Free keys are available at{" "}
-                    <a
-                      href="https://console.groq.com/keys"
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ color: "var(--win-accent)" }}
-                    >
-                      console.groq.com
-                    </a>.
-                  </p>
-                  <div className="win-input-wrap" style={{ marginBottom: 12 }}>
-                    <input
-                      type={showKey ? "text" : "password"}
-                      className="win-input"
-                      placeholder="gsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                      value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
-                    />
-                    <button
-                      className="win-input-action"
-                      onClick={() => setShowKey(!showKey)}
-                    >
-                      {showKey ? "Hide" : "Show"}
-                    </button>
-                  </div>
-                  {keyStatus && (
-                    <div className={`win-status-box ${keyStatusType}`} style={{ marginBottom: 12 }}>
-                      <span className="win-box-text">{keyStatus}</span>
-                    </div>
-                  )}
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button className="win-btn-secondary" onClick={handleTestKey}>
-                      Test Connection
-                    </button>
-                    <button className="win-btn-primary" onClick={handleSaveKey}>
-                      Save Key
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Step 3: Hotkey Selection & Try it Now */}
-              {onboardingStep === 3 && (
-                <div>
-                  <h2 style={{ fontSize: "18px", color: "#fff", marginBottom: 6 }}>
-                    Trigger Hotkey Preset
-                  </h2>
-                  <p style={{ fontSize: "13px", color: "var(--win-text-secondary)", marginBottom: 14 }}>
-                    Your active shortcut is <strong>{activeHotkeyDisplay}</strong> ({settings.mode} mode). Pick your favorite preset below:
-                  </p>
-                  <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
-                    <button
-                      className={`win-toggle-btn ${settings.mode === "hold" ? "active" : ""}`}
-                      onClick={() => updateSetting("mode", "hold")}
-                    >
-                      Hold Mode
-                    </button>
-                    <button
-                      className={`win-toggle-btn ${settings.mode === "toggle" ? "active" : ""}`}
-                      onClick={() => updateSetting("mode", "toggle")}
-                    >
-                      Toggle Mode
-                    </button>
-                  </div>
-
-                  <div className="win-presets-grid" style={{ marginBottom: 14 }}>
-                    {HOTKEY_PRESETS.map((preset) => {
-                      const isSelected = (settings.hotkey_preset ?? 1) === preset.id;
-                      return (
-                        <div
-                          key={preset.id}
-                          className={`win-preset-card ${isSelected ? "selected" : ""}`}
-                          onClick={() => updateSetting("hotkey_preset", preset.id)}
-                        >
-                          <div className="win-preset-header">
-                            <div className="win-preset-radio">
-                              <div className={`radio-dot ${isSelected ? "active" : ""}`} />
-                            </div>
-                            <span className="win-preset-name">{preset.name}</span>
-                            <span className="win-preset-badge">{preset.keysLabel}</span>
-                          </div>
-                          <div className="win-preset-desc">{preset.description}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div style={{ padding: 12, borderRadius: 8, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
-                    <span style={{ fontSize: "12px", color: "var(--win-text-secondary)" }}>
-                      {settings.mode === "hold"
-                        ? `Try it now: Hold ${activeHotkeyDisplay}, say something, and release!`
-                        : `Try it now: Tap ${activeHotkeyDisplay} to start, say something, and tap again to finish!`}
-                    </span>
-                    <div style={{ marginTop: 8, color: "#fff", fontSize: "13px", minHeight: 24 }}>
-                      {testDictationText || (isDictating ? "🎙️ Listening..." : "Dictated text will show here.")}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Step 4: Microphone Permission & Live Test */}
-              {onboardingStep === 4 && (
-                <div>
-                  <h2 style={{ fontSize: "18px", color: "#fff", marginBottom: 6 }}>
-                    Microphone & Permissions
-                  </h2>
-                  <p style={{ fontSize: "13px", color: "var(--win-text-secondary)", marginBottom: 14 }}>
-                    Spitit opens the microphone on press and closes it when recording ends.
-                  </p>
-                  <div style={{ marginBottom: 14 }}>
-                    <label className="win-label">Active Input Device</label>
-                    <select
-                      className="win-select"
-                      value={settings.microphone_device}
-                      onChange={(e) => updateSetting("microphone_device", e.target.value)}
-                    >
-                      <option value="System default">System default</option>
-                      {micList.map((m) => (
-                        <option key={m.name} value={m.name}>
-                          {m.name} {m.is_default ? "(Default)" : ""}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div style={{ padding: 12, borderRadius: 8, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
-                    <div style={{ fontSize: "12px", color: "var(--win-text-secondary)", marginBottom: 8 }}>
-                      Live Input Level (Speak to test):
-                    </div>
-                    <div className="win-meter-bg">
-                      <div
-                        className="win-meter-fill"
-                        style={{ width: `${Math.round(liveMicLevel * 100)}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Step 5: Clipboard History Check */}
-              {onboardingStep === 5 && (
-                <div>
-                  <h2 style={{ fontSize: "18px", color: "#fff", marginBottom: 6 }}>
-                    Windows Clipboard History (Win+V)
-                  </h2>
-                  <p style={{ fontSize: "13px", color: "var(--win-text-secondary)", marginBottom: 14 }}>
-                    Spitit places transcripts in your clipboard. Enabling Windows Clipboard History
-                    ensures previously copied links or images are never lost.
-                  </p>
-                  <div
-                    style={{
-                      padding: 14,
-                      borderRadius: 8,
-                      background: isClipHistoryOn ? "rgba(52,199,89,0.08)" : "rgba(255,159,10,0.08)",
-                      border: `1px solid ${isClipHistoryOn ? "rgba(52,199,89,0.25)" : "rgba(255,159,10,0.25)"}`,
-                      marginBottom: 14,
-                    }}
-                  >
-                    <div style={{ fontSize: "13px", fontWeight: 600, color: isClipHistoryOn ? "#34c759" : "#ff9f0a" }}>
-                      {isClipHistoryOn ? "✓ Clipboard History is enabled" : "⚠️ Clipboard History is currently off"}
-                    </div>
-                    <div style={{ fontSize: "12px", color: "var(--win-text-secondary)", marginTop: 4 }}>
-                      {isClipHistoryOn
-                        ? "Press Win+V anytime in Windows to view past copied items."
-                        : "Turn it on in Windows Settings so past clipboard items remain preserved."}
-                    </div>
-                  </div>
-                  {!isClipHistoryOn && (
-                    <button
-                      className="win-btn-secondary"
-                      onClick={() => openWindowsSettings("ms-settings:clipboard")}
-                    >
-                      Open Windows Clipboard Settings
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Step 6: Ready */}
-              {onboardingStep === 6 && (
-                <div>
-                  <h2 style={{ fontSize: "18px", color: "#fff", marginBottom: 6 }}>
-                    You're All Set!
-                  </h2>
-                  <p style={{ fontSize: "13px", color: "var(--win-text-secondary)", marginBottom: 16 }}>
-                    Spitit is running silently in your system tray. Whenever you need to type, just:
-                  </p>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      padding: 18,
-                      borderRadius: 8,
-                      background: "rgba(255,213,5,0.08)",
-                      border: "1px solid rgba(255,213,5,0.2)",
-                      fontSize: "16px",
-                      fontWeight: 700,
-                      color: "#FFD505",
-                      letterSpacing: "0.02em",
-                      marginBottom: 16,
-                    }}
-                  >
-                    Hold {activeHotkeyDisplay} & Speak
-                  </div>
-                  <p style={{ fontSize: "12px", color: "var(--win-text-secondary)" }}>
-                    You can reopen this setup guide or customize options anytime in Settings.
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <div className="win-onboarding-footer">
-              <button
-                className="win-btn-secondary"
-                onClick={finishOnboarding}
-                style={{ fontSize: "12px" }}
-              >
-                Skip Setup
-              </button>
-              <div style={{ display: "flex", gap: 8 }}>
-                {onboardingStep > 1 && (
-                  <button
-                    className="win-btn-secondary"
-                    onClick={() => setOnboardingStep((s) => s - 1)}
-                  >
-                    Back
-                  </button>
-                )}
-                {onboardingStep < 6 ? (
-                  <button
-                    className="win-btn-primary"
-                    onClick={() => setOnboardingStep((s) => s + 1)}
-                  >
-                    Next →
-                  </button>
-                ) : (
-                  <button className="win-btn-primary" onClick={finishOnboarding}>
-                    Get Started ✓
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Windows 11 Titlebar */}
       <header className="win-titlebar">
@@ -1331,6 +1004,81 @@ export default function App() {
                   ))}
                 </div>
               </div>
+
+              {/* Translation Output Section */}
+              <div className="win-card" style={{ marginTop: 16 }}>
+                <div className="win-card-row" style={{ alignItems: "flex-start", gap: 16 }}>
+                  <div style={{ flex: 1 }}>
+                    <h3 className="win-card-title">Translate Output To</h3>
+                    <p className="win-card-desc">
+                      After transcription, automatically translate your words into the selected language before pasting.
+                      Powered by <strong>LLaMA 3.3 70B</strong> (Groq) with LLaMA 3.1 8B fallback.
+                      Set to <em>No Translation</em> to paste as-is.
+                    </p>
+                  </div>
+                  <div style={{ minWidth: 220 }}>
+                    <select
+                      className="win-input"
+                      style={{ width: "100%", cursor: "pointer" }}
+                      value={settings.translate_to || ""}
+                      onChange={(e) => updateSetting("translate_to", e.target.value)}
+                    >
+                      <option value="">No Translation (default)</option>
+                      <optgroup label="Popular">
+                        <option value="hi">→ Hindi (हिन्दी)</option>
+                        <option value="en">→ English</option>
+                        <option value="es">→ Spanish (Español)</option>
+                        <option value="fr">→ French (Français)</option>
+                        <option value="de">→ German (Deutsch)</option>
+                        <option value="ar">→ Arabic (العربية)</option>
+                        <option value="zh">→ Chinese Simplified (中文)</option>
+                        <option value="ja">→ Japanese (日本語)</option>
+                        <option value="ko">→ Korean (한국어)</option>
+                        <option value="pt">→ Portuguese (Português)</option>
+                        <option value="ru">→ Russian (Русский)</option>
+                      </optgroup>
+                      <optgroup label="Indian Languages">
+                        <option value="bn">→ Bengali (বাংলা)</option>
+                        <option value="gu">→ Gujarati (ગુજરાતી)</option>
+                        <option value="kn">→ Kannada (ಕನ್ನಡ)</option>
+                        <option value="ml">→ Malayalam (മലയാളം)</option>
+                        <option value="mr">→ Marathi (मराठी)</option>
+                        <option value="pa">→ Punjabi (ਪੰਜਾਬੀ)</option>
+                        <option value="ta">→ Tamil (தமிழ்)</option>
+                        <option value="te">→ Telugu (తెలుగు)</option>
+                        <option value="ur">→ Urdu (اردو)</option>
+                      </optgroup>
+                      <optgroup label="European">
+                        <option value="cs">→ Czech (Čeština)</option>
+                        <option value="da">→ Danish (Dansk)</option>
+                        <option value="el">→ Greek (Ελληνικά)</option>
+                        <option value="fi">→ Finnish (Suomi)</option>
+                        <option value="hu">→ Hungarian (Magyar)</option>
+                        <option value="it">→ Italian (Italiano)</option>
+                        <option value="nl">→ Dutch (Nederlands)</option>
+                        <option value="no">→ Norwegian (Norsk)</option>
+                        <option value="pl">→ Polish (Polski)</option>
+                        <option value="ro">→ Romanian (Română)</option>
+                        <option value="sk">→ Slovak (Slovenčina)</option>
+                        <option value="sv">→ Swedish (Svenska)</option>
+                        <option value="tr">→ Turkish (Türkçe)</option>
+                        <option value="uk">→ Ukrainian (Українська)</option>
+                      </optgroup>
+                      <optgroup label="Asian">
+                        <option value="id">→ Indonesian (Bahasa Indonesia)</option>
+                        <option value="ms">→ Malay (Bahasa Melayu)</option>
+                        <option value="th">→ Thai (ภาษาไทย)</option>
+                        <option value="vi">→ Vietnamese (Tiếng Việt)</option>
+                      </optgroup>
+                    </select>
+                    {settings.translate_to && (
+                      <p style={{ fontSize: "11px", color: "var(--win-accent)", marginTop: 6 }}>
+                        ⚡ Speak in any language → output pasted in the language above
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -1704,24 +1452,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="win-divider" />
 
-                {/* Reopen Onboarding */}
-                <div className="win-card-row">
-                  <div>
-                    <h3 className="win-card-title">Setup & Onboarding Guide</h3>
-                    <p className="win-card-desc">Revisit the first-time setup guide and feature tour.</p>
-                  </div>
-                  <button
-                    className="win-btn-secondary small"
-                    onClick={() => {
-                      setOnboardingStep(1);
-                      setShowOnboarding(true);
-                    }}
-                  >
-                    Replay Onboarding
-                  </button>
-                </div>
               </div>
             </div>
           )}

@@ -202,15 +202,31 @@ export default function PillWindow() {
     };
   }, []);
 
+  // Save pill position after drag
+  const handleMouseUp = async () => {
+    try {
+      const appWindow = getCurrentWebviewWindow();
+      const pos = await appWindow.outerPosition();
+      await invoke("save_pill_position", { x: pos.x, y: pos.y });
+    } catch {}
+  };
+
+  useEffect(() => {
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => window.removeEventListener("mouseup", handleMouseUp);
+  }, []);
+
   // Section 2.2: Controlled mouse drag — native and Tauri window drag
   const handleMouseDown = async (e: React.MouseEvent) => {
     if (e.button === 0) {
       try {
         await invoke("start_pill_drag");
+        await handleMouseUp();
       } catch {
         try {
           const appWindow = getCurrentWebviewWindow();
           await appWindow.startDragging();
+          await handleMouseUp();
         } catch (err) {
           console.error("Window drag error:", err);
         }
@@ -232,14 +248,15 @@ export default function PillWindow() {
   return (
     <div
       style={{
-        width: "100vw",
-        height: "100vh",
+        width: "100%",
+        height: "100%",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         background: "transparent",
         overflow: "hidden",
         userSelect: "none",
+        pointerEvents: "none",
       }}
       onContextMenu={(e) => e.preventDefault()}
     >

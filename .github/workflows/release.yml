@@ -64,6 +64,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Build Microsoft Store MSIX Package
+        shell: pwsh
+        run: |
+          ./msix/build-msix.ps1 `
+            -Version "${{ env.VERSION }}" `
+            -PackageName "${{ vars.MS_PACKAGE_NAME || 'Spitit' }}" `
+            -Publisher "${{ vars.MS_PUBLISHER || 'CN=Spitit' }}" `
+            -PublisherDisplayName "${{ vars.MS_PUBLISHER_DISPLAY_NAME || 'REREAL' }}" `
+            -OutputDir "release-artifacts"
+
       - name: Collect & Name Release Artifacts
         shell: bash
         run: |
@@ -77,7 +87,7 @@ jobs:
 
           # Compute SHA-256 Checksums
           cd release-artifacts
-          sha256sum Spitit_${{ env.VERSION }}_x64-setup.exe Spitit_${{ env.VERSION }}_portable.exe > SHA256SUMS.txt
+          sha256sum Spitit_${{ env.VERSION }}_x64-setup.exe Spitit_${{ env.VERSION }}_portable.exe Spitit_${{ env.VERSION }}_x64.msix > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Create GitHub Release
@@ -90,6 +100,7 @@ jobs:
           files: |
             release-artifacts/Spitit_${{ env.VERSION }}_x64-setup.exe
             release-artifacts/Spitit_${{ env.VERSION }}_portable.exe
+            release-artifacts/Spitit_${{ env.VERSION }}_x64.msix
             release-artifacts/SHA256SUMS.txt
           body: |
             ## Spitit v${{ env.VERSION }}
@@ -97,6 +108,7 @@ jobs:
             ### Official Downloads (Windows 10 & 11, 64-bit)
             - **Installer (NSIS Setup):** `Spitit_${{ env.VERSION }}_x64-setup.exe`
             - **Standalone Portable:** `Spitit_${{ env.VERSION }}_portable.exe`
+            - **Microsoft Store / Partner Center (MSIX):** `Spitit_${{ env.VERSION }}_x64.msix`
             - **Checksums:** `SHA256SUMS.txt`
             
             ### Verification

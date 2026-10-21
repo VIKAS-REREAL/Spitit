@@ -153,6 +153,29 @@ pub fn preset_contains_vk(preset_id: u8, vk: u32) -> bool {
     }
 }
 
+pub fn is_preset_physically_down(preset_id: u8) -> bool {
+    let key_down = |vk: u32| -> bool {
+        let st = unsafe { GetAsyncKeyState(vk as i32) };
+        (st as u16 & 0x8000) != 0
+    };
+
+    let has_alt = key_down(VK_LMENU) || key_down(VK_RMENU) || key_down(VK_MENU);
+    let has_ctrl = key_down(VK_LCONTROL) || key_down(VK_RCONTROL) || key_down(VK_CONTROL);
+    let has_shift = key_down(VK_LSHIFT) || key_down(VK_RSHIFT) || key_down(VK_SHIFT);
+    let has_space = key_down(VK_SPACE);
+    let has_ralt = key_down(VK_RMENU);
+
+    match preset_id {
+        0 => has_alt && has_space,
+        1 => has_alt && has_shift,
+        2 => has_ctrl && has_shift,
+        3 => has_ralt,
+        4 => has_ctrl && has_alt && has_space,
+        5 => has_ctrl && has_space,
+        _ => false,
+    }
+}
+
 pub fn validate_hotkey_combo(
     _combo_str: &str,
     _is_hold: bool,
@@ -349,25 +372,59 @@ fn start_hook_worker() {
     });
 }
 
-/// Watchdog thread: Checks hook health every 2.5s and re-arms if removed or desynced
+/// Watchdog thread: Checks hook health and detects released keys every 100ms
 fn start_watchdog_thread() {
-    thread::spawn(|| loop {
-        thread::sleep(Duration::from_millis(2500));
+    thread::spawn(|| {
+        let mut loop_count: u32 = 0;
+        loop {
+            thread::sleep(Duration::from_millis(100));
+            loop_count = loop_count.wrapping_add(1);
 
-        // Purge any stuck keys using GetAsyncKeyState
-        if let Ok(mut lock) = HOOK_STATE.lock() {
-            if let Some(state) = lock.as_mut() {
-                state.pressed_keys.retain(|&vk| {
-                    let st = unsafe { GetAsyncKeyState(vk as i32) };
-                    (st as u16 & 0x8000) != 0
-                });
+            if let Ok(mut lock) = HOOK_STATE.lock() {
+                if let Some(state) = lock.as_mut() {
+                    // Purge any keys that are no longer physically down
+                    state.pressed_keys.retain(|&vk| {
+                        let st = unsafe { GetAsyncKeyState(vk as i32) };
+                        (st as u16 & 0x8000) != 0
+                    });
+
+                    // If in Hold mode and recording or holding candidate, check physical combo state
+                    if state.mode == ActivationMode::Hold
+                        && (state.engine_state == EngineState::Recording
+                            || state.engine_state == EngineState::CandidateHold)
+                    {
+                        let still_down = is_preset_physically_down(state.preset_id);
+                        if !still_down {
+                            if state.engine_state == EngineState::CandidateHold {
+                                let elapsed = state
+                                    .candidate_start
+                                    .map(|t| t.elapsed())
+                                    .unwrap_or_default();
+                                if elapsed >= state.min_hold_time {
+                                    state.engine_state = EngineState::Processing;
+                                    state.candidate_start = None;
+                                    let _ = state.event_tx.send(HotkeyEvent::Stop);
+                                } else {
+                                    state.engine_state = EngineState::Idle;
+                                    state.candidate_start = None;
+                                    state.candidate_seq = state.candidate_seq.wrapping_add(1);
+                                    let _ = state.event_tx.send(HotkeyEvent::TapIgnored);
+                                }
+                            } else if state.engine_state == EngineState::Recording {
+                                state.engine_state = EngineState::Processing;
+                                state.candidate_start = None;
+                                let _ = state.event_tx.send(HotkeyEvent::Stop);
+                            }
+                        }
+                    }
+                }
             }
-        }
 
-        // Verify hook installation
-        if !IS_HOOK_INSTALLED.load(Ordering::SeqCst) {
-            eprintln!("[Spitit Hook Watchdog] Re-installing low-level hook...");
-            start_hook_worker();
+            // Verify hook installation every ~2s (20 iterations * 100ms)
+            if loop_count % 20 == 0 && !IS_HOOK_INSTALLED.load(Ordering::SeqCst) {
+                eprintln!("[Spitit Hook Watchdog] Re-installing low-level hook...");
+                start_hook_worker();
+            }
         }
     });
 }

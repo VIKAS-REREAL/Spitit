@@ -27,8 +27,8 @@
       {
         "label": "pill",
         "title": "Spitit Pill",
-        "width": 160,
-        "height": 38,
+        "width": 148,
+        "height": 32,
         "resizable": false,
         "transparent": true,
         "decorations": false,
