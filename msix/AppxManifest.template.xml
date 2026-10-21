@@ -16,7 +16,7 @@
     <DisplayName>{{DISPLAY_NAME}}</DisplayName>
     <PublisherDisplayName>{{PUBLISHER_DISPLAY_NAME}}</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
-    <Description>High-Speed AI Voice Dictation for Windows powered by Groq Whisper Turbo</Description>
+    <Description>Hold it, press it, spit it. High-speed voice dictation designed for seamless typing.</Description>
   </Properties>
 
   <Resources>
@@ -38,7 +38,7 @@
       EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
         DisplayName="{{DISPLAY_NAME}}"
-        Description="High-Speed AI Voice Dictation for Windows powered by Groq Whisper Turbo"
+        Description="Hold it, press it, spit it. High-speed voice dictation designed for seamless typing."
         BackgroundColor="#111114"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png">

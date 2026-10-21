@@ -1,8 +1,8 @@
 [package]
 name = "spitit-v3"
 version = "3.0.0"
-description = "Fast, open-source voice dictation client for Windows powered by Groq Whisper"
-authors = ["Vikas Nath (REREAL)"]
+description = "Hold it, press it, spit it. High-speed voice dictation designed for seamless typing."
+authors = ["Vikas Nath - REREAL"]
 license = "MIT"
 repository = "https://github.com/VIKAS-REREAL/Spitit"
 homepage = "https://spitit.in"

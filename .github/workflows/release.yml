@@ -71,7 +71,7 @@ jobs:
             -Version "${{ env.VERSION }}" `
             -PackageName "${{ vars.MS_PACKAGE_NAME || 'Spitit' }}" `
             -Publisher "${{ vars.MS_PUBLISHER || 'CN=Spitit' }}" `
-            -PublisherDisplayName "${{ vars.MS_PUBLISHER_DISPLAY_NAME || 'REREAL' }}" `
+            -PublisherDisplayName "${{ vars.MS_PUBLISHER_DISPLAY_NAME || 'Vikas Nath - REREAL' }}" `
             -OutputDir "release-artifacts"
 
       - name: Collect & Name Release Artifacts

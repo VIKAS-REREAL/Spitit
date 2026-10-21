@@ -126,7 +126,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   copy_to_clipboard: true,
   play_sound: true,
   sound_volume: 70,
-  start_with_windows: false,
+  start_with_windows: true,
   pill_edge_animation: true,
   minimum_hold_time_ms: 250,
   silence_threshold: 0.0015,

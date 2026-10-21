@@ -2,7 +2,7 @@ param(
     [string]$Version = "3.0.0",
     [string]$PackageName = "Spitit",
     [string]$Publisher = "CN=Spitit",
-    [string]$PublisherDisplayName = "REREAL",
+    [string]$PublisherDisplayName = "Vikas Nath - REREAL",
     [string]$DisplayName = "Spitit",
     [string]$ExePath = "",
     [string]$OutputDir = "release-artifacts"

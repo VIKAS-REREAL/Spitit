@@ -36,7 +36,7 @@ use windows::Win32::System::Registry::{
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    BringWindowToTop, GetCursorPos, GetSystemMetrics, GetWindowLongW, SetForegroundWindow,
+    BringWindowToTop, GetSystemMetrics, GetWindowLongW, SetForegroundWindow,
     SetWindowLongW, SetWindowPos, ShowWindow, GWL_EXSTYLE, GWL_STYLE, HWND_TOPMOST, SM_CXSCREEN,
     SM_CYSCREEN, SWP_FRAMECHANGED, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
     SW_RESTORE, SW_SHOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_THICKFRAME,
@@ -156,7 +156,7 @@ pub unsafe fn position_pill_on_monitor(hwnd: HWND, saved_x: Option<i32>, saved_y
     let (x, y) = if let (Some(sx), Some(sy)) = (saved_x, saved_y) {
         let pt = POINT { x: sx, y: sy };
         let hmon_at_pt = MonitorFromPoint(pt, MONITOR_DEFAULTTONULL);
-        if hmon_at_pt.0 != 0 {
+        if !hmon_at_pt.0.is_null() {
             (sx, sy)
         } else {
             get_default_pill_position(hwnd, pill_w, pill_h)
@@ -521,8 +521,67 @@ fn is_autostart_enabled() -> bool {
     }
 }
 
+fn get_current_exe_clean() -> Result<std::path::PathBuf, String> {
+    let mut exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe_str = exe.to_string_lossy().to_string();
+    if exe_str.starts_with(r"\\?\") {
+        exe = std::path::PathBuf::from(&exe_str[4..]);
+    }
+    Ok(exe)
+}
+
+fn create_shortcut(lnk_path: &std::path::Path, target_path: &std::path::Path, args: &str) {
+    let script = format!(
+        "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('{}'); $s.TargetPath = '{}'; $s.Arguments = '{}'; $s.WorkingDirectory = '{}'; $s.Save()",
+        lnk_path.to_string_lossy().replace('\'', "''"),
+        target_path.to_string_lossy().replace('\'', "''"),
+        args.replace('\'', "''"),
+        target_path
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default()
+            .replace('\'', "''")
+    );
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .status();
+    }
+}
+
+pub fn ensure_start_menu_shortcut() {
+    if let Some(appdata) = std::env::var_os("APPDATA") {
+        let programs_dir = std::path::PathBuf::from(appdata)
+            .join("Microsoft")
+            .join("Windows")
+            .join("Start Menu")
+            .join("Programs");
+        let _ = std::fs::create_dir_all(&programs_dir);
+        if let Ok(exe) = get_current_exe_clean() {
+            let lnk_path = programs_dir.join("Spitit.lnk");
+            create_shortcut(&lnk_path, &exe, "");
+        }
+    }
+}
+
 #[tauri::command]
 fn set_autostart_enabled(enabled: bool) -> Result<(), String> {
+    let appdata_opt = std::env::var_os("APPDATA");
+    let startup_lnk = appdata_opt.map(|appdata| {
+        let dir = std::path::PathBuf::from(appdata)
+            .join("Microsoft")
+            .join("Windows")
+            .join("Start Menu")
+            .join("Programs")
+            .join("Startup");
+        let _ = std::fs::create_dir_all(&dir);
+        dir.join("Spitit.lnk")
+    });
+
     unsafe {
         let subkey: Vec<u16> = "Software\\Microsoft\\Windows\\CurrentVersion\\Run\0"
             .encode_utf16()
@@ -541,19 +600,26 @@ fn set_autostart_enabled(enabled: bool) -> Result<(), String> {
         .map_err(|e| format!("RegOpenKeyExW failed: {e}"))?;
 
         let res = if enabled {
-            let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
-            let mut exe_str = current_exe.to_string_lossy().to_string();
-            // Strip Windows \\?\ extended prefix if present
-            if exe_str.starts_with(r"\\?\") {
-                exe_str = exe_str[4..].to_string();
-            }
+            let current_exe = get_current_exe_clean()?;
             // Pass --autostart flag so launch starts silently in system tray without splash
-            let val = format!("\"{}\" --autostart", exe_str);
+            let val = format!("\"{}\" --autostart", current_exe.display());
             let val_w: Vec<u16> = val.encode_utf16().chain(std::iter::once(0)).collect();
             let bytes = std::slice::from_raw_parts(val_w.as_ptr() as *const u8, val_w.len() * 2);
-            RegSetValueExW(hkey, PCWSTR(name.as_ptr()), 0, REG_SZ, Some(bytes))
+            let reg_res = RegSetValueExW(hkey, PCWSTR(name.as_ptr()), 0, REG_SZ, Some(bytes));
+
+            // Also place shortcut into Windows Startup folder for bulletproof autostart on all setups (including portable)
+            if let Some(lnk) = startup_lnk {
+                create_shortcut(&lnk, &current_exe, "--autostart");
+            }
+
+            reg_res
         } else {
-            RegDeleteValueW(hkey, PCWSTR(name.as_ptr()))
+            let reg_res = RegDeleteValueW(hkey, PCWSTR(name.as_ptr()));
+            // Remove from Windows Startup folder
+            if let Some(lnk) = startup_lnk {
+                let _ = std::fs::remove_file(lnk);
+            }
+            reg_res
         };
         let _ = RegCloseKey(hkey);
         res.ok().map_err(|e| format!("Registry write failed: {e}"))
@@ -712,6 +778,9 @@ pub fn run() {
                     let _ = main_win.set_icon(icon.clone());
                 }
             }
+
+            // Ensure Start Menu shortcut exists so Windows Search indexes Spitit (works for portable & installer)
+            ensure_start_menu_shortcut();
 
             // Dynamically self-heal autostart registration if enabled
             if initial_settings.start_with_windows {
