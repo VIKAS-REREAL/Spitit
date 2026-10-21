@@ -65,17 +65,35 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Build Microsoft Store MSIX Package
+        shell: pwsh
+        run: |
+          ./msix/build-msix.ps1 `
+            -Version "3.0.0" `
+            -PackageName "${{ vars.MS_PACKAGE_NAME || 'Spitit' }}" `
+            -Publisher "${{ vars.MS_PUBLISHER || 'CN=Spitit' }}" `
+            -PublisherDisplayName "${{ vars.MS_PUBLISHER_DISPLAY_NAME || 'Vikas Nath - REREAL' }}" `
+            -DisplayName "Spitit" `
+            -OutputDir "build-artifacts"
+
       - name: Collect Build Artifacts
         shell: bash
         run: |
           mkdir -p build-artifacts
           # Copy NSIS installer
-          cp src-tauri/target/release/bundle/nsis/*.exe build-artifacts/ 2>/dev/null || true
+          cp src-tauri/target/release/bundle/nsis/*.exe build-artifacts/Spitit_3.0.0_x64-setup.exe 2>/dev/null || true
           # Copy Standalone portable executable
-          cp src-tauri/target/release/spitit-v3.exe build-artifacts/ 2>/dev/null || true
+          cp src-tauri/target/release/spitit-v3.exe build-artifacts/Spitit_3.0.0_portable.exe 2>/dev/null || cp src-tauri/target/release/Spitit.exe build-artifacts/Spitit_3.0.0_portable.exe 2>/dev/null || true
           ls -la build-artifacts/
 
-      - name: Upload Windows Build Artifacts
+      - name: Upload Microsoft Store MSIX Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Spitit_3.0.0_x64_MSIX
+          path: build-artifacts/*.msix
+          retention-days: 30
+
+      - name: Upload All Windows Build Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: spitit-windows-build-${{ github.sha }}
