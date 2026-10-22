@@ -69,9 +69,9 @@ jobs:
         run: |
           ./msix/build-msix.ps1 `
             -Version "${{ env.VERSION }}" `
-            -PackageName "${{ vars.MS_PACKAGE_NAME || 'Spitit' }}" `
-            -Publisher "${{ vars.MS_PUBLISHER || 'CN=Spitit' }}" `
-            -PublisherDisplayName "${{ vars.MS_PUBLISHER_DISPLAY_NAME || 'Vikas Nath - REREAL' }}" `
+            -PackageName "${{ vars.MS_PACKAGE_NAME || 'VikasNath.Spitit' }}" `
+            -Publisher "${{ vars.MS_PUBLISHER || 'CN=0AE03DC8-0A8C-4F03-A557-E8A19893C1E6' }}" `
+            -PublisherDisplayName "${{ vars.MS_PUBLISHER_DISPLAY_NAME || 'VikasNath' }}" `
             -OutputDir "release-artifacts"
 
       - name: Collect & Name Release Artifacts

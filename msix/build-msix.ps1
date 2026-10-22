@@ -1,8 +1,8 @@
 param(
     [string]$Version = "3.0.0",
-    [string]$PackageName = "Spitit",
-    [string]$Publisher = "CN=Spitit",
-    [string]$PublisherDisplayName = "Vikas Nath - REREAL",
+    [string]$PackageName = "VikasNath.Spitit",
+    [string]$Publisher = "CN=0AE03DC8-0A8C-4F03-A557-E8A19893C1E6",
+    [string]$PublisherDisplayName = "VikasNath",
     [string]$DisplayName = "Spitit",
     [string]$ExePath = "",
     [string]$OutputDir = "release-artifacts",
