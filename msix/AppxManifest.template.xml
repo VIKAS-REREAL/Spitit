@@ -6,14 +6,14 @@
   IgnorableNamespaces="uap rescap">
 
   <Identity
-    Name="{{PACKAGE_NAME}}"
-    Publisher="{{PUBLISHER}}"
+    Name="VikasNath.Spitit"
+    Publisher="CN=0AE03DC8-0A8C-4F03-A557-E8A19893C1E6"
     Version="{{VERSION}}"
     ProcessorArchitecture="x64" />
 
   <Properties>
     <DisplayName>{{DISPLAY_NAME}}</DisplayName>
-    <PublisherDisplayName>{{PUBLISHER_DISPLAY_NAME}}</PublisherDisplayName>
+    <PublisherDisplayName>VikasNath</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
     <Description>Hold it, press it, spit it. High-speed voice dictation designed for seamless typing.</Description>
   </Properties>
