@@ -70,9 +70,9 @@ jobs:
         run: |
           ./msix/build-msix.ps1 `
             -Version "3.0.0" `
-            -PackageName "${{ vars.MS_PACKAGE_NAME || 'Spitit' }}" `
-            -Publisher "${{ vars.MS_PUBLISHER || 'CN=Spitit' }}" `
-            -PublisherDisplayName "${{ vars.MS_PUBLISHER_DISPLAY_NAME || 'Vikas Nath - REREAL' }}" `
+            -PackageName "VikasNath.Spitit" `
+            -Publisher "CN=0AE03DC8-0A8C-4F03-A557-E8A19893C1E6" `
+            -PublisherDisplayName "VikasNath" `
             -DisplayName "Spitit" `
             -OutputDir "build-artifacts"
 

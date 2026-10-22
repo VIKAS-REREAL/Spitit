@@ -165,6 +165,12 @@ $manifestDest = Join-Path $layoutDir "AppxManifest.xml"
 [System.IO.File]::WriteAllText($manifestDest, $manifestContent, [System.Text.UTF8Encoding]::new($false))
 Write-Host "Generated AppxManifest.xml successfully."
 
+# Guarantee signing certificate subject exactly matches manifest Publisher attribute
+if ($manifestContent -match 'Publisher="([^"]+)"') {
+    $Publisher = $matches[1]
+    Write-Host "Aligned Signing Certificate Subject to Manifest Publisher: $Publisher"
+}
+
 # Ensure output directory exists
 if (-not (Test-Path $OutputDir)) {
     New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
