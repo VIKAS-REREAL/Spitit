@@ -1,6 +1,6 @@
 [package]
 name = "spitit-v3"
-version = "3.0.0"
+version = "3.0.1"
 description = "Hold it, press it, spit it. High-speed voice dictation designed for seamless typing."
 authors = ["Vikas Nath - REREAL"]
 license = "MIT"

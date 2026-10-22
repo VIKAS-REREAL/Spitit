@@ -382,7 +382,7 @@ export default function App() {
         <div className="win-titlebar-left">
           <img src="/icon.svg" alt="Spitit" className="win-titlebar-icon" />
           <span className="win-titlebar-name">Spitit</span>
-          <span className="win-titlebar-badge">v3.0</span>
+          <span className="win-titlebar-badge">v3.0.1</span>
         </div>
 
         <div className="win-titlebar-spacer" />
@@ -958,12 +958,24 @@ export default function App() {
               </div>
 
               <div className="win-info-card">
-                <h4>Getting a Free Groq Key:</h4>
-                <p>
-                  1. Visit <strong>console.groq.com</strong> and sign up.<br />
-                  2. Navigate to <strong>API Keys</strong> and create a key.<br />
-                  3. Paste it here and click <strong>Save API Key</strong>. Groq provides generous free-tier limits for Whisper Turbo.
-                </p>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px", flexWrap: "wrap" }}>
+                  <div>
+                    <h4>Bring Your Own Key (Free Groq Key):</h4>
+                    <p style={{ margin: "6px 0 0 0" }}>
+                      1. Visit <strong>console.groq.com</strong> (free sign-up, no credit card required).<br />
+                      2. Under <strong>API Keys</strong>, create a key.<br />
+                      3. Paste it above and click <strong>Save API Key</strong>.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="win-btn-secondary small"
+                    onClick={() => openWindowsSettings("https://console.groq.com/keys")}
+                    style={{ whiteSpace: "nowrap", alignSelf: "center" }}
+                  >
+                    Open console.groq.com ↗
+                  </button>
+                </div>
               </div>
 
               <div className="win-info-card" style={{ marginTop: "12px", borderLeft: "3px solid #FFD505" }}>
