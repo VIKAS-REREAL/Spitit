@@ -962,7 +962,16 @@ export default function App() {
                 <p>
                   1. Visit <strong>console.groq.com</strong> and sign up.<br />
                   2. Navigate to <strong>API Keys</strong> and create a key.<br />
-                  3. Paste it here. Groq provides generous free-tier limits for Whisper Turbo.
+                  3. Paste it here and click <strong>Save API Key</strong>. Groq provides generous free-tier limits for Whisper Turbo.
+                </p>
+              </div>
+
+              <div className="win-info-card" style={{ marginTop: "12px", borderLeft: "3px solid #FFD505" }}>
+                <h4>Testing Voice Dictation:</h4>
+                <p>
+                  1. Once your API key is saved, switch to any application (e.g., Windows Notepad) or open the <strong>Dictation Sandbox</strong> tab.<br />
+                  2. Press and hold your shortcut: <strong>{activeHotkeyDisplay}</strong>.<br />
+                  3. Speak clearly, then release the keys. Your spoken words will transcribe and paste automatically.
                 </p>
               </div>
             </div>

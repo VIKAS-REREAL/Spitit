@@ -530,40 +530,20 @@ fn get_current_exe_clean() -> Result<std::path::PathBuf, String> {
     Ok(exe)
 }
 
-fn create_shortcut(lnk_path: &std::path::Path, target_path: &std::path::Path, args: &str) {
-    let script = format!(
-        "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('{}'); $s.TargetPath = '{}'; $s.Arguments = '{}'; $s.WorkingDirectory = '{}'; $s.Save()",
-        lnk_path.to_string_lossy().replace('\'', "''"),
-        target_path.to_string_lossy().replace('\'', "''"),
-        args.replace('\'', "''"),
-        target_path
-            .parent()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_default()
-            .replace('\'', "''")
-    );
-
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        let _ = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
-            .creation_flags(0x08000000) // CREATE_NO_WINDOW
-            .status();
-    }
-}
-
-pub fn ensure_start_menu_shortcut() {
+pub fn cleanup_redundant_start_menu_shortcut() {
     if let Some(appdata) = std::env::var_os("APPDATA") {
         let programs_dir = std::path::PathBuf::from(appdata)
             .join("Microsoft")
             .join("Windows")
             .join("Start Menu")
             .join("Programs");
-        let _ = std::fs::create_dir_all(&programs_dir);
-        if let Ok(exe) = get_current_exe_clean() {
-            let lnk_path = programs_dir.join("Spitit.lnk");
-            create_shortcut(&lnk_path, &exe, "");
+        let lnk_path = programs_dir.join("Spitit.lnk");
+        if lnk_path.exists() {
+            let _ = std::fs::remove_file(&lnk_path);
+        }
+        let startup_lnk = programs_dir.join("Startup").join("Spitit.lnk");
+        if startup_lnk.exists() {
+            let _ = std::fs::remove_file(&startup_lnk);
         }
     }
 }
@@ -578,7 +558,6 @@ fn set_autostart_enabled(enabled: bool) -> Result<(), String> {
             .join("Start Menu")
             .join("Programs")
             .join("Startup");
-        let _ = std::fs::create_dir_all(&dir);
         dir.join("Spitit.lnk")
     });
 
@@ -607,9 +586,9 @@ fn set_autostart_enabled(enabled: bool) -> Result<(), String> {
             let bytes = std::slice::from_raw_parts(val_w.as_ptr() as *const u8, val_w.len() * 2);
             let reg_res = RegSetValueExW(hkey, PCWSTR(name.as_ptr()), 0, REG_SZ, Some(bytes));
 
-            // Also place shortcut into Windows Startup folder for bulletproof autostart on all setups (including portable)
+            // Clean up any old duplicate startup shortcut to prevent duplicate Startup tiles
             if let Some(lnk) = startup_lnk {
-                create_shortcut(&lnk, &current_exe, "--autostart");
+                let _ = std::fs::remove_file(lnk);
             }
 
             reg_res
@@ -782,18 +761,22 @@ pub fn run() {
                 }
             }
 
-            // Ensure Start Menu shortcut exists so Windows Search indexes Spitit (works for portable & installer)
-            ensure_start_menu_shortcut();
+            // Remove any redundant Start Menu shortcuts so only the official package tile exists (Policy 10.1.1.11)
+            cleanup_redundant_start_menu_shortcut();
 
             // Dynamically self-heal autostart registration if enabled
             if initial_settings.start_with_windows {
                 let _ = set_autostart_enabled(true);
             }
 
-            // Show main window ONLY if:
-            // 1. Not launching silently via Windows startup (--autostart)
-            // 2. AND API key is not configured
-            if !is_autostart_launch && init_key.is_empty() {
+            // Window presentation (Policy 10.3.3):
+            // When launched from Start Menu or desktop, ALWAYS bring the main window to front.
+            // Only hide silently to tray when launched with the explicit Windows boot parameter (--autostart).
+            if is_autostart_launch {
+                if let Some(main_win) = app.get_webview_window("main") {
+                    let _ = main_win.hide();
+                }
+            } else {
                 bring_main_window_to_front(&handle);
             }
 
