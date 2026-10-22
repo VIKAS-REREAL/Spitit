@@ -93,6 +93,13 @@ jobs:
           sha256sum $(ls -1 Spitit_${{ env.VERSION }}_* 2>/dev/null) > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
+      - name: Upload Build Artifacts to Actions Run
+        uses: actions/upload-artifact@v4
+        with:
+          name: spitit-v${{ env.VERSION }}-release-artifacts
+          path: release-artifacts/*
+          if-no-files-found: warn
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
