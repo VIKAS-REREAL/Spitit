@@ -1261,6 +1261,22 @@ body, html {
   animation: pulse-dot 2s infinite ease-in-out;
 }
 
+.win-hero-card.warning-card {
+  border-color: rgba(255, 213, 5, 0.4);
+  background: rgba(255, 213, 5, 0.04);
+}
+
+.win-hero-dot.warning {
+  background: #FFD505;
+  box-shadow: 0 0 10px rgba(255, 213, 5, 0.7);
+  animation: pulse-dot-warning 2s infinite ease-in-out;
+}
+
+@keyframes pulse-dot-warning {
+  0%, 100% { opacity: 0.8; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.15); box-shadow: 0 0 14px rgba(255, 213, 5, 0.9); }
+}
+
 @keyframes pulse-dot {
   0%, 100% { opacity: 0.8; transform: scale(1); }
   50% { opacity: 1; transform: scale(1.15); box-shadow: 0 0 14px rgba(52, 199, 89, 0.9); }

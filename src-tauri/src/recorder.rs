@@ -22,7 +22,7 @@ pub const TARGET_SAMPLE_RATE: u32 = 16000;
 pub const MIN_DURATION_SECS: f32 = 0.25;
 pub const MAX_DURATION_SECS: f32 = 90.0;
 pub const COUNTDOWN_THRESHOLD_SECS: f32 = 80.0;
-pub const DEFAULT_SILENCE_THRESHOLD: f32 = 0.0008;
+pub const DEFAULT_SILENCE_THRESHOLD: f32 = 0.0002;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioDeviceInfo {
@@ -199,6 +199,101 @@ pub fn check_windows_mic_privacy() -> Result<(), String> {
     Ok(())
 }
 
+fn build_input_stream_for_config(
+    device: &cpal::Device,
+    config: &cpal::SupportedStreamConfig,
+    buf: Arc<Mutex<Vec<i16>>>,
+    rec_flag: Arc<AtomicBool>,
+    counter: Arc<std::sync::atomic::AtomicUsize>,
+) -> Result<cpal::Stream, String> {
+    let channels = config.channels() as usize;
+    let err_fn = |err| eprintln!("[Spitit Audio Stream Error] {err}");
+
+    match config.sample_format() {
+        cpal::SampleFormat::F32 => device
+            .build_input_stream(
+                &config.clone().into(),
+                move |data: &[f32], _: &_| {
+                    if !rec_flag.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    let mut b = buf.lock().unwrap();
+                    for frame in data.chunks(channels) {
+                        let sum: f32 = frame.iter().copied().sum();
+                        let mono = sum / channels as f32;
+                        let sample_i16 = (mono.clamp(-1.0, 1.0) * 32767.0) as i16;
+                        b.push(sample_i16);
+                    }
+                    counter.fetch_add(data.len() / channels, Ordering::Relaxed);
+                },
+                err_fn,
+                None,
+            )
+            .map_err(|e| format!("{e}")),
+        cpal::SampleFormat::I16 => device
+            .build_input_stream(
+                &config.clone().into(),
+                move |data: &[i16], _: &_| {
+                    if !rec_flag.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    let mut b = buf.lock().unwrap();
+                    for frame in data.chunks(channels) {
+                        let sum: i32 = frame.iter().map(|&s| s as i32).sum();
+                        let mono = (sum / channels as i32) as i16;
+                        b.push(mono);
+                    }
+                    counter.fetch_add(data.len() / channels, Ordering::Relaxed);
+                },
+                err_fn,
+                None,
+            )
+            .map_err(|e| format!("{e}")),
+        cpal::SampleFormat::I32 => device
+            .build_input_stream(
+                &config.clone().into(),
+                move |data: &[i32], _: &_| {
+                    if !rec_flag.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    let mut b = buf.lock().unwrap();
+                    for frame in data.chunks(channels) {
+                        let sum: i64 = frame.iter().map(|&s| s as i64).sum();
+                        let mono = (sum / channels as i64) as i32;
+                        let sample_i16 = (mono >> 16) as i16;
+                        b.push(sample_i16);
+                    }
+                    counter.fetch_add(data.len() / channels, Ordering::Relaxed);
+                },
+                err_fn,
+                None,
+            )
+            .map_err(|e| format!("{e}")),
+        cpal::SampleFormat::U16 => device
+            .build_input_stream(
+                &config.clone().into(),
+                move |data: &[u16], _: &_| {
+                    if !rec_flag.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    let mut b = buf.lock().unwrap();
+                    for frame in data.chunks(channels) {
+                        let sum: i32 = frame.iter().map(|&s| s as i32 - 32768).sum();
+                        let mono = (sum / channels as i32) as i16;
+                        b.push(mono);
+                    }
+                    counter.fetch_add(data.len() / channels, Ordering::Relaxed);
+                },
+                err_fn,
+                None,
+            )
+            .map_err(|e| format!("{e}")),
+        fmt => Err(format!(
+            "ERR_AUDIO_FORMAT: Unsupported sample format {fmt:?}"
+        )),
+    }
+}
+
 fn run_audio_worker<FLevel, FCountdown, FAutoStop>(
     cmd_rx: Receiver<AudioCommand>,
     is_rec_flag: Arc<AtomicBool>,
@@ -226,11 +321,6 @@ fn run_audio_worker<FLevel, FCountdown, FAutoStop>(
             Ok(AudioCommand::Start { device_name, reply }) => {
                 if is_rec_flag.load(Ordering::SeqCst) {
                     let _ = reply.send(Ok(()));
-                    continue;
-                }
-
-                if let Err(e) = check_windows_mic_privacy() {
-                    let _ = reply.send(Err(e));
                     continue;
                 }
 
@@ -265,17 +355,32 @@ fn run_audio_worker<FLevel, FCountdown, FAutoStop>(
                     }
                 };
 
-                let config_res = device.default_input_config();
-                let config = match config_res {
+                let config = match device.default_input_config() {
                     Ok(c) => c,
-                    Err(e) => {
-                        let _ = reply.send(Err(format!("ERR_DEVICE_BUSY: Failed to access microphone ({e}). It may be in exclusive use.")));
-                        continue;
+                    Err(err) => {
+                        // Fallback: search supported_input_configs
+                        let mut fallback_config = None;
+                        if let Ok(configs) = device.supported_input_configs() {
+                            for supp in configs {
+                                let rate = cpal::SampleRate(48000)
+                                    .clamp(supp.min_sample_rate(), supp.max_sample_rate());
+                                fallback_config = Some(supp.with_sample_rate(rate));
+                                break;
+                            }
+                        }
+                        match fallback_config {
+                            Some(c) => c,
+                            None => {
+                                let _ = reply.send(Err(format!(
+                                    "ERR_DEVICE_BUSY: Failed to access microphone ({err})."
+                                )));
+                                continue;
+                            }
+                        }
                     }
                 };
 
                 let dev_rate = config.sample_rate().0;
-                let channels = config.channels() as usize;
                 stream_sample_rate = dev_rate;
 
                 audio_buffer = Arc::new(Mutex::new(Vec::with_capacity(dev_rate as usize * 10)));
@@ -283,113 +388,23 @@ fn run_audio_worker<FLevel, FCountdown, FAutoStop>(
                 let rec_flag_clone = Arc::clone(&is_rec_flag);
                 let counter_clone = Arc::clone(&sample_counter);
 
-                let err_fn = |err| eprintln!("[Spitit Audio Stream Error] {err}");
+                let mut stream_res = build_input_stream_for_config(
+                    &device,
+                    &config,
+                    Arc::clone(&buf_clone),
+                    Arc::clone(&rec_flag_clone),
+                    Arc::clone(&counter_clone),
+                );
 
-                let mut stream_res = match config.sample_format() {
-                    cpal::SampleFormat::F32 => {
-                        let b = Arc::clone(&buf_clone);
-                        let rf = Arc::clone(&rec_flag_clone);
-                        let sc = Arc::clone(&counter_clone);
-                        device.build_input_stream(
-                            &config.clone().into(),
-                            move |data: &[f32], _: &_| {
-                                if !rf.load(Ordering::SeqCst) {
-                                    return;
-                                }
-                                let mut buf = b.lock().unwrap();
-                                for frame in data.chunks(channels) {
-                                    let sum: f32 = frame.iter().copied().sum();
-                                    let mono = sum / channels as f32;
-                                    let sample_i16 = (mono.clamp(-1.0, 1.0) * 32767.0) as i16;
-                                    buf.push(sample_i16);
-                                }
-                                sc.fetch_add(data.len() / channels, Ordering::Relaxed);
-                            },
-                            err_fn,
-                            None,
-                        )
-                    }
-                    cpal::SampleFormat::I16 => {
-                        let b = Arc::clone(&buf_clone);
-                        let rf = Arc::clone(&rec_flag_clone);
-                        let sc = Arc::clone(&counter_clone);
-                        device.build_input_stream(
-                            &config.clone().into(),
-                            move |data: &[i16], _: &_| {
-                                if !rf.load(Ordering::SeqCst) {
-                                    return;
-                                }
-                                let mut buf = b.lock().unwrap();
-                                for frame in data.chunks(channels) {
-                                    let sum: i32 = frame.iter().map(|&s| s as i32).sum();
-                                    let mono = (sum / channels as i32) as i16;
-                                    buf.push(mono);
-                                }
-                                sc.fetch_add(data.len() / channels, Ordering::Relaxed);
-                            },
-                            err_fn,
-                            None,
-                        )
-                    }
-                    _ => {
-                        let _ = reply.send(Err(
-                            "ERR_AUDIO_FORMAT: Unsupported microphone sample format.".into(),
-                        ));
-                        continue;
-                    }
-                };
-
-                // WASAPI retry resilience: if previous session was just closed (rapid tap), retry after brief settle
                 if stream_res.is_err() {
                     thread::sleep(Duration::from_millis(45));
-                    stream_res = match config.sample_format() {
-                        cpal::SampleFormat::F32 => {
-                            let b = Arc::clone(&buf_clone);
-                            let rf = Arc::clone(&rec_flag_clone);
-                            let sc = Arc::clone(&counter_clone);
-                            device.build_input_stream(
-                                &config.clone().into(),
-                                move |data: &[f32], _: &_| {
-                                    if !rf.load(Ordering::SeqCst) {
-                                        return;
-                                    }
-                                    let mut buf = b.lock().unwrap();
-                                    for frame in data.chunks(channels) {
-                                        let sum: f32 = frame.iter().copied().sum();
-                                        let mono = sum / channels as f32;
-                                        let sample_i16 = (mono.clamp(-1.0, 1.0) * 32767.0) as i16;
-                                        buf.push(sample_i16);
-                                    }
-                                    sc.fetch_add(data.len() / channels, Ordering::Relaxed);
-                                },
-                                err_fn,
-                                None,
-                            )
-                        }
-                        cpal::SampleFormat::I16 => {
-                            let b = Arc::clone(&buf_clone);
-                            let rf = Arc::clone(&rec_flag_clone);
-                            let sc = Arc::clone(&counter_clone);
-                            device.build_input_stream(
-                                &config.clone().into(),
-                                move |data: &[i16], _: &_| {
-                                    if !rf.load(Ordering::SeqCst) {
-                                        return;
-                                    }
-                                    let mut buf = b.lock().unwrap();
-                                    for frame in data.chunks(channels) {
-                                        let sum: i32 = frame.iter().map(|&s| s as i32).sum();
-                                        let mono = (sum / channels as i32) as i16;
-                                        buf.push(mono);
-                                    }
-                                    sc.fetch_add(data.len() / channels, Ordering::Relaxed);
-                                },
-                                err_fn,
-                                None,
-                            )
-                        }
-                        _ => stream_res,
-                    };
+                    stream_res = build_input_stream_for_config(
+                        &device,
+                        &config,
+                        Arc::clone(&buf_clone),
+                        Arc::clone(&rec_flag_clone),
+                        Arc::clone(&counter_clone),
+                    );
                 }
 
                 match stream_res {
@@ -411,9 +426,13 @@ fn run_audio_worker<FLevel, FCountdown, FAutoStop>(
                         let _ = reply.send(Ok(()));
                     }
                     Err(e) => {
-                        let _ = reply.send(Err(format!(
-                            "ERR_PERMISSION_DENIED: Failed to initialize microphone: {e}"
-                        )));
+                        if let Err(priv_err) = check_windows_mic_privacy() {
+                            let _ = reply.send(Err(priv_err));
+                        } else {
+                            let _ = reply.send(Err(format!(
+                                "ERR_PERMISSION_DENIED: Failed to initialize microphone: {e}. Check microphone privacy settings in Windows."
+                            )));
+                        }
                     }
                 }
             }

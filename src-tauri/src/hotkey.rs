@@ -118,9 +118,9 @@ pub fn get_presets_list() -> Vec<HotkeyPresetInfo> {
 }
 
 pub fn matches_preset(preset_id: u8, pressed: &HashSet<u32>) -> bool {
-    let has_alt = pressed.contains(&VK_LMENU) || pressed.contains(&VK_MENU);
-    let has_ctrl = pressed.contains(&VK_LCONTROL) || pressed.contains(&VK_CONTROL);
-    let has_shift = pressed.contains(&VK_LSHIFT) || pressed.contains(&VK_SHIFT);
+    let has_alt = pressed.contains(&VK_LMENU) || pressed.contains(&VK_RMENU) || pressed.contains(&VK_MENU);
+    let has_ctrl = pressed.contains(&VK_LCONTROL) || pressed.contains(&VK_RCONTROL) || pressed.contains(&VK_CONTROL);
+    let has_shift = pressed.contains(&VK_LSHIFT) || pressed.contains(&VK_RSHIFT) || pressed.contains(&VK_SHIFT);
     let has_space = pressed.contains(&VK_SPACE);
     let has_ralt = pressed.contains(&VK_RMENU);
 
@@ -136,19 +136,18 @@ pub fn matches_preset(preset_id: u8, pressed: &HashSet<u32>) -> bool {
 }
 
 pub fn preset_contains_vk(preset_id: u8, vk: u32) -> bool {
+    let is_alt = vk == VK_LMENU || vk == VK_RMENU || vk == VK_MENU;
+    let is_ctrl = vk == VK_LCONTROL || vk == VK_RCONTROL || vk == VK_CONTROL;
+    let is_shift = vk == VK_LSHIFT || vk == VK_RSHIFT || vk == VK_SHIFT;
+    let is_space = vk == VK_SPACE;
+
     match preset_id {
-        0 => vk == VK_LMENU || vk == VK_MENU || vk == VK_SPACE,
-        1 => vk == VK_LMENU || vk == VK_MENU || vk == VK_LSHIFT || vk == VK_SHIFT,
-        2 => vk == VK_LCONTROL || vk == VK_CONTROL || vk == VK_LSHIFT || vk == VK_SHIFT,
+        0 => is_alt || is_space,
+        1 => is_alt || is_shift,
+        2 => is_ctrl || is_shift,
         3 => vk == VK_RMENU || vk == VK_MENU,
-        4 => {
-            vk == VK_LCONTROL
-                || vk == VK_CONTROL
-                || vk == VK_LMENU
-                || vk == VK_MENU
-                || vk == VK_SPACE
-        }
-        5 => vk == VK_LCONTROL || vk == VK_CONTROL || vk == VK_SPACE,
+        4 => is_ctrl || is_alt || is_space,
+        5 => is_ctrl || is_space,
         _ => false,
     }
 }
@@ -196,6 +195,7 @@ pub struct HookSharedState {
     pub candidate_seq: u64,
     pub min_hold_time: Duration,
     pub last_toggle_time: Instant,
+    pub is_toggle_session: bool,
     pub event_tx: Sender<HotkeyEvent>,
 }
 
@@ -230,6 +230,7 @@ impl HotkeyManager {
                 candidate_seq: 0,
                 min_hold_time: Duration::from_millis(min_hold_ms as u64),
                 last_toggle_time: Instant::now() - Duration::from_secs(2),
+                is_toggle_session: false,
                 event_tx: tx,
             });
         }
@@ -255,6 +256,7 @@ impl HotkeyManager {
         if let Some(s) = lock.as_mut() {
             s.mode = new_mode;
             s.engine_state = EngineState::Idle;
+            s.is_toggle_session = false;
             s.pressed_keys.clear();
         }
     }
@@ -273,6 +275,7 @@ impl HotkeyManager {
             s.preset_id = clamped;
             s.min_hold_time = Duration::from_millis(min_ms as u64);
             s.engine_state = EngineState::Idle;
+            s.is_toggle_session = false;
             s.pressed_keys.clear();
         }
     }
@@ -295,6 +298,7 @@ impl HotkeyManager {
             s.engine_state = state;
             if state == EngineState::Idle {
                 s.candidate_start = None;
+                s.is_toggle_session = false;
                 s.candidate_seq = s.candidate_seq.wrapping_add(1);
 
                 // Synchronize pressed keys with physical hardware state
@@ -343,10 +347,13 @@ fn start_hook_worker() {
         let tid = windows::Win32::System::Threading::GetCurrentThreadId();
         HOOK_TID.store(tid, Ordering::SeqCst);
 
+        let hmod = windows::Win32::System::LibraryLoader::GetModuleHandleW(None)
+            .unwrap_or(HINSTANCE(std::ptr::null_mut()));
+
         let hook: HHOOK = match SetWindowsHookExW(
             WH_KEYBOARD_LL,
             Some(low_level_keyboard_proc),
-            HINSTANCE(std::ptr::null_mut()),
+            hmod,
             0,
         ) {
             Ok(h) => h,
@@ -403,14 +410,16 @@ fn start_watchdog_thread() {
                                 if elapsed >= state.min_hold_time {
                                     state.engine_state = EngineState::Processing;
                                     state.candidate_start = None;
+                                    state.is_toggle_session = false;
                                     let _ = state.event_tx.send(HotkeyEvent::Stop);
                                 } else {
-                                    state.engine_state = EngineState::Idle;
+                                    // Quick tap detected by watchdog: convert to toggle recording so it's not lost
+                                    state.engine_state = EngineState::Recording;
+                                    state.is_toggle_session = true;
                                     state.candidate_start = None;
-                                    state.candidate_seq = state.candidate_seq.wrapping_add(1);
-                                    let _ = state.event_tx.send(HotkeyEvent::TapIgnored);
+                                    let _ = state.event_tx.send(HotkeyEvent::StartConfirmed);
                                 }
-                            } else if state.engine_state == EngineState::Recording {
+                            } else if state.engine_state == EngineState::Recording && !state.is_toggle_session {
                                 state.engine_state = EngineState::Processing;
                                 state.candidate_start = None;
                                 let _ = state.event_tx.send(HotkeyEvent::Stop);
@@ -480,6 +489,7 @@ fn handle_raw_key_event(state: &mut HookSharedState, vk: u32, is_down: bool, is_
         {
             state.engine_state = EngineState::Idle;
             state.candidate_start = None;
+            state.is_toggle_session = false;
             state.candidate_seq = state.candidate_seq.wrapping_add(1);
             let _ = state.event_tx.send(HotkeyEvent::Cancel);
             return;
@@ -493,27 +503,36 @@ fn handle_raw_key_event(state: &mut HookSharedState, vk: u32, is_down: bool, is_
         match state.mode {
             ActivationMode::Hold => {
                 let combo_active = matches_preset(state.preset_id, &state.pressed_keys);
-                if combo_active && state.engine_state == EngineState::Idle {
-                    state.engine_state = EngineState::CandidateHold;
-                    state.candidate_start = Some(Instant::now());
-                    state.candidate_seq = state.candidate_seq.wrapping_add(1);
-                    let my_seq = state.candidate_seq;
-                    let _ = state.event_tx.send(HotkeyEvent::StartCandidate);
+                if combo_active {
+                    if state.engine_state == EngineState::Idle {
+                        state.engine_state = EngineState::CandidateHold;
+                        state.candidate_start = Some(Instant::now());
+                        state.is_toggle_session = false;
+                        state.candidate_seq = state.candidate_seq.wrapping_add(1);
+                        let my_seq = state.candidate_seq;
+                        let _ = state.event_tx.send(HotkeyEvent::StartCandidate);
 
-                    let min_hold = state.min_hold_time;
-                    thread::spawn(move || {
-                        thread::sleep(min_hold);
-                        if let Ok(mut lock) = HOOK_STATE.lock() {
-                            if let Some(s) = lock.as_mut() {
-                                if s.candidate_seq == my_seq
-                                    && s.engine_state == EngineState::CandidateHold
-                                {
-                                    s.engine_state = EngineState::Recording;
-                                    let _ = s.event_tx.send(HotkeyEvent::StartConfirmed);
+                        let min_hold = state.min_hold_time;
+                        thread::spawn(move || {
+                            thread::sleep(min_hold);
+                            if let Ok(mut lock) = HOOK_STATE.lock() {
+                                if let Some(s) = lock.as_mut() {
+                                    if s.candidate_seq == my_seq
+                                        && s.engine_state == EngineState::CandidateHold
+                                    {
+                                        s.engine_state = EngineState::Recording;
+                                        let _ = s.event_tx.send(HotkeyEvent::StartConfirmed);
+                                    }
                                 }
                             }
-                        }
-                    });
+                        });
+                    } else if state.engine_state == EngineState::Recording && state.is_toggle_session {
+                        // User previously tapped to start toggle recording, now pressed combo again to stop!
+                        state.engine_state = EngineState::Processing;
+                        state.candidate_start = None;
+                        state.is_toggle_session = false;
+                        let _ = state.event_tx.send(HotkeyEvent::Stop);
+                    }
                 }
             }
             ActivationMode::Toggle => {
@@ -522,10 +541,12 @@ fn handle_raw_key_event(state: &mut HookSharedState, vk: u32, is_down: bool, is_
                     state.last_toggle_time = Instant::now();
                     if state.engine_state == EngineState::Idle {
                         state.engine_state = EngineState::Recording;
+                        state.is_toggle_session = true;
                         let _ = state.event_tx.send(HotkeyEvent::StartCandidate);
                         let _ = state.event_tx.send(HotkeyEvent::StartConfirmed);
                     } else if state.engine_state == EngineState::Recording {
                         state.engine_state = EngineState::Processing;
+                        state.is_toggle_session = false;
                         let _ = state.event_tx.send(HotkeyEvent::Stop);
                     }
                 }
@@ -543,19 +564,26 @@ fn handle_raw_key_event(state: &mut HookSharedState, vk: u32, is_down: bool, is_
                         .map(|t| t.elapsed())
                         .unwrap_or_default();
                     if elapsed >= state.min_hold_time {
+                        // Was held past min_hold_time: normal hold release stops and pastes
+                        state.engine_state = EngineState::Processing;
+                        state.candidate_start = None;
+                        state.is_toggle_session = false;
+                        let _ = state.event_tx.send(HotkeyEvent::Stop);
+                    } else {
+                        // User quickly tapped the keys: transition to toggle recording so user speech is captured!
+                        state.engine_state = EngineState::Recording;
+                        state.is_toggle_session = true;
+                        state.candidate_start = None;
+                        let _ = state.event_tx.send(HotkeyEvent::StartConfirmed);
+                    }
+                } else if state.engine_state == EngineState::Recording {
+                    if !state.is_toggle_session {
+                        // Normal hold-mode release: stop and process
                         state.engine_state = EngineState::Processing;
                         state.candidate_start = None;
                         let _ = state.event_tx.send(HotkeyEvent::Stop);
-                    } else {
-                        state.engine_state = EngineState::Idle;
-                        state.candidate_start = None;
-                        state.candidate_seq = state.candidate_seq.wrapping_add(1);
-                        let _ = state.event_tx.send(HotkeyEvent::TapIgnored);
                     }
-                } else if state.engine_state == EngineState::Recording {
-                    state.engine_state = EngineState::Processing;
-                    state.candidate_start = None;
-                    let _ = state.event_tx.send(HotkeyEvent::Stop);
+                    // If toggle session, keep recording until user presses combo again
                 }
             }
         }
@@ -589,13 +617,28 @@ mod tests {
         assert!(matches_preset(0, &pressed));
         pressed.clear();
 
-        // Preset 1: Alt + Left Shift
+        // Preset 1: Alt + Left Shift & Right variants
         pressed.insert(VK_LMENU);
         pressed.insert(VK_LSHIFT);
         assert!(matches_preset(1, &pressed));
         assert!(preset_contains_vk(1, VK_LMENU));
         assert!(preset_contains_vk(1, VK_LSHIFT));
         assert!(!preset_contains_vk(1, VK_SPACE));
+        pressed.clear();
+
+        pressed.insert(VK_RMENU);
+        pressed.insert(VK_RSHIFT);
+        assert!(matches_preset(1, &pressed));
+        assert!(preset_contains_vk(1, VK_RMENU));
+        assert!(preset_contains_vk(1, VK_RSHIFT));
+        pressed.clear();
+
+        // Preset 2: Ctrl + Shift (Left & Right variants)
+        pressed.insert(VK_RCONTROL);
+        pressed.insert(VK_RSHIFT);
+        assert!(matches_preset(2, &pressed));
+        assert!(preset_contains_vk(2, VK_RCONTROL));
+        assert!(preset_contains_vk(2, VK_RSHIFT));
         pressed.clear();
 
         // Preset 3: Right Alt

@@ -227,11 +227,18 @@ export default function App() {
       }
     });
 
+    const unlistenTab = listen<NavTab>("navigate_tab", (event) => {
+      if (event.payload) {
+        setActiveTab(event.payload);
+      }
+    });
+
     return () => {
       clearTimeout(splashTimer);
       unlistenLevel.then((f) => f());
       unlistenMeta.then((f) => f());
       unlistenLang.then((f) => f());
+      unlistenTab.then((f) => f());
     };
   }, []);
 
@@ -567,23 +574,43 @@ export default function App() {
               </div>
 
               {/* Hero Status Card */}
-              <div className="win-hero-card">
+              <div className={`win-hero-card ${!apiKey ? "warning-card" : ""}`}>
                 <div className="win-hero-left">
-                  <div className="win-hero-dot" />
+                  <div className={`win-hero-dot ${!apiKey ? "warning" : ""}`} />
                   <div>
-                    <div className="win-hero-title">Voice Engine Ready</div>
+                    <div className="win-hero-title">
+                      {apiKey ? "Voice Engine Ready" : "Setup Required: Groq API Key Needed"}
+                    </div>
                     <div className="win-hero-sub">
-                      Hold <strong>{activeHotkeyDisplay}</strong> to speak anywhere.
+                      {apiKey ? (
+                        <>
+                          Hold or tap <strong>{activeHotkeyDisplay}</strong> to speak anywhere.
+                        </>
+                      ) : (
+                        <>Enter your free Groq API key to activate voice dictation and speech recognition.</>
+                      )}
                     </div>
                   </div>
                 </div>
                 <div className="win-hero-badges">
-                  <span className="win-hero-badge gold">
-                    {settings.language === "hinglish" ? "Hinglish (AI)" : "English (Fast)"}
-                  </span>
-                  <span className="win-hero-badge">
-                    {settings.mode === "hold" ? "Hold Mode" : "Toggle Mode"}
-                  </span>
+                  {!apiKey ? (
+                    <button
+                      className="win-btn-primary small"
+                      onClick={() => setActiveTab("api_key")}
+                      style={{ padding: "6px 14px", fontSize: "12px", whiteSpace: "nowrap" }}
+                    >
+                      Enter API Key ➔
+                    </button>
+                  ) : (
+                    <>
+                      <span className="win-hero-badge gold">
+                        {settings.language === "hinglish" ? "Hinglish (AI)" : "English (Fast)"}
+                      </span>
+                      <span className="win-hero-badge">
+                        {settings.mode === "hold" ? "Hold or Tap" : "Toggle Mode"}
+                      </span>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -880,10 +907,16 @@ export default function App() {
                 </div>
 
                 <div className="win-sandbox-wrap">
+                  {!apiKey && (
+                    <div style={{ marginBottom: "12px", padding: "10px 14px", background: "rgba(255, 213, 5, 0.08)", border: "1px solid rgba(255, 213, 5, 0.35)", borderRadius: "8px", fontSize: "13px", color: "#FFD505", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
+                      <span>⚠️ <strong>Groq API key required:</strong> Please add your API key in the Groq API Key tab to enable voice dictation.</span>
+                      <button className="win-btn-primary small" onClick={() => setActiveTab("api_key")} style={{ padding: "4px 12px", fontSize: "11px", whiteSpace: "nowrap" }}>Add Key</button>
+                    </div>
+                  )}
                   <textarea
                     className="win-sandbox-textarea custom-scrollbar"
                     rows={4}
-                    placeholder={`Hold ${activeHotkeyDisplay} and speak... Your transcribed text will appear here.`}
+                    placeholder={`Hold or tap ${activeHotkeyDisplay} and speak... Your transcribed text will appear here.`}
                     value={testDictationText}
                     onChange={(e) => setTestDictationText(e.target.value)}
                   />

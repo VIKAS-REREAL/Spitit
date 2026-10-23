@@ -979,6 +979,8 @@ pub fn run() {
                             if key.is_empty() {
                                 app_state.hotkey_mgr.set_engine_state(EngineState::Idle);
                                 let _ = handle_worker.emit("recording_state", "error:ERR_NO_API_KEY: Please configure your Groq API key.");
+                                bring_main_window_to_front(&handle_worker);
+                                let _ = handle_worker.emit("navigate_tab", "api_key");
                                 continue;
                             }
 
