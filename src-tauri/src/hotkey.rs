@@ -347,13 +347,15 @@ fn start_hook_worker() {
         let tid = windows::Win32::System::Threading::GetCurrentThreadId();
         HOOK_TID.store(tid, Ordering::SeqCst);
 
-        let hmod = windows::Win32::System::LibraryLoader::GetModuleHandleW(None)
-            .unwrap_or(HINSTANCE(std::ptr::null_mut()));
+        let hinstance = match windows::Win32::System::LibraryLoader::GetModuleHandleW(None) {
+            Ok(h) => HINSTANCE(h.0),
+            Err(_) => HINSTANCE(std::ptr::null_mut()),
+        };
 
         let hook: HHOOK = match SetWindowsHookExW(
             WH_KEYBOARD_LL,
             Some(low_level_keyboard_proc),
-            hmod,
+            hinstance,
             0,
         ) {
             Ok(h) => h,
