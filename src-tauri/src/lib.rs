@@ -243,16 +243,17 @@ pub fn configure_tray_popup_window(window: &tauri::WebviewWindow) {
     }
 }
 
-pub fn configure_splash_window(splash_win: &tauri::WebviewWindow) {
+pub fn show_splash_window(splash_win: &tauri::WebviewWindow) {
+    let _ = splash_win.center();
+    let _ = splash_win.show();
+    let _ = splash_win.set_focus();
     if let Ok(raw_hwnd) = splash_win.hwnd() {
-        let hwnd = HWND(raw_hwnd.0 as _);
         unsafe {
-            let style = GetWindowLongW(hwnd, GWL_STYLE);
-            SetWindowLongW(
-                hwnd,
-                GWL_STYLE,
-                style & !(WS_MAXIMIZEBOX.0 as i32) & !(WS_THICKFRAME.0 as i32),
-            );
+            let hwnd = HWND(raw_hwnd.0 as _);
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+            let _ = ShowWindow(hwnd, SW_SHOW);
+            let _ = SetForegroundWindow(hwnd);
+            let _ = BringWindowToTop(hwnd);
         }
     }
 }
@@ -822,10 +823,7 @@ pub fn run() {
 
             // Present Splash Screen centered on application launch
             if let Some(splash_win) = app.get_webview_window("splash") {
-                configure_splash_window(&splash_win);
-                let _ = splash_win.center();
-                let _ = splash_win.show();
-                let _ = splash_win.set_focus();
+                show_splash_window(&splash_win);
             }
 
             // Setup System Tray

@@ -7,8 +7,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: transparent;
-  padding: 12px;
+  background: #0f0f13;
   overflow: hidden;
   user-select: none;
   font-family: "Segoe UI Variable Display", "Segoe UI Variable", -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
@@ -17,18 +16,11 @@
 
 .splash-card {
   width: 100%;
-  max-width: 356px;
+  height: 100%;
   box-sizing: border-box;
-  background: rgba(14, 15, 19, 0.94);
-  backdrop-filter: blur(28px);
-  -webkit-backdrop-filter: blur(28px);
+  background: #111115;
   border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 20px;
-  box-shadow:
-    0 24px 60px -8px rgba(0, 0, 0, 0.85),
-    0 0 40px rgba(255, 213, 5, 0.08),
-    inset 0 1px 1px rgba(255, 255, 255, 0.14);
-  padding: 24px 22px 20px 22px;
+  padding: 26px 24px 20px 24px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -44,7 +36,7 @@
 @keyframes splashEnter {
   from {
     opacity: 0;
-    transform: scale(0.92) translateY(8px);
+    transform: scale(0.96) translateY(6px);
   }
   to {
     opacity: 1;
@@ -59,7 +51,7 @@
   }
   to {
     opacity: 0;
-    transform: scale(0.94) translateY(6px);
+    transform: scale(0.96) translateY(6px);
   }
 }
 
@@ -69,10 +61,10 @@
   top: -40px;
   left: 50%;
   transform: translateX(-50%);
-  width: 220px;
-  height: 140px;
-  background: radial-gradient(circle, rgba(255, 213, 5, 0.16) 0%, rgba(255, 213, 5, 0) 70%);
-  filter: blur(32px);
+  width: 260px;
+  height: 160px;
+  background: radial-gradient(circle, rgba(255, 213, 5, 0.18) 0%, rgba(255, 213, 5, 0) 70%);
+  filter: blur(28px);
   pointer-events: none;
   z-index: 0;
 }
@@ -97,14 +89,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-top: 4px;
-  margin-bottom: 14px;
+  margin-top: 2px;
+  margin-bottom: 12px;
 }
 
 .splash-logo-glow {
   position: absolute;
-  width: 100px;
-  height: 100px;
+  width: 96px;
+  height: 96px;
   border-radius: 50%;
   background: radial-gradient(circle, rgba(255, 213, 5, 0.35) 0%, rgba(255, 213, 5, 0) 70%);
   animation: pulseGlow 2.8s ease-in-out infinite alternate;
@@ -217,8 +209,8 @@
 .splash-status-card {
   width: 100%;
   box-sizing: border-box;
-  background: rgba(255, 255, 255, 0.035);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
   padding: 10px 12px;
   display: flex;
@@ -292,8 +284,8 @@
 .splash-autostart-banner {
   width: 100%;
   box-sizing: border-box;
-  background: rgba(255, 213, 5, 0.06);
-  border: 1px solid rgba(255, 213, 5, 0.18);
+  background: rgba(255, 213, 5, 0.08);
+  border: 1px solid rgba(255, 213, 5, 0.22);
   border-radius: 10px;
   padding: 8px 10px;
   margin-bottom: 14px;
@@ -323,7 +315,7 @@
 .splash-progress-track {
   width: 100%;
   height: 3px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.1);
   border-radius: 99px;
   overflow: hidden;
 }
@@ -346,7 +338,7 @@
 
 .splash-btn {
   width: 100%;
-  height: 40px;
+  height: 42px;
   border-radius: 11px;
   font-size: 13px;
   font-weight: 600;
@@ -384,14 +376,14 @@
 
 /* Secondary Action: Open Settings */
 .splash-btn-secondary {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.06);
   color: #e4e4e7;
-  border: 1px solid rgba(255, 255, 255, 0.11);
+  border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .splash-btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.09);
-  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.11);
+  border-color: rgba(255, 255, 255, 0.24);
   color: #ffffff;
   transform: translateY(-1px);
 }
@@ -418,4 +410,3 @@
   letter-spacing: 0.01em;
   z-index: 1;
 }
-

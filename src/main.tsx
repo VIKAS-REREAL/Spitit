@@ -14,6 +14,17 @@ try {
   windowLabel = "main";
 }
 
+// Fallback checking URL hash or href for maximum reliability
+if (!windowLabel || windowLabel === "main") {
+  if (window.location.hash.includes("splash") || window.location.href.includes("splash")) {
+    windowLabel = "splash";
+  } else if (window.location.hash.includes("pill") || window.location.href.includes("pill")) {
+    windowLabel = "pill";
+  } else if (window.location.hash.includes("tray") || window.location.href.includes("tray")) {
+    windowLabel = "tray_popup";
+  }
+}
+
 const isPill = windowLabel === "pill";
 const isTrayPopup = windowLabel === "tray_popup";
 const isSplash = windowLabel === "splash";
@@ -21,10 +32,17 @@ const isSplash = windowLabel === "splash";
 // Disable default right-click browser context menu globally
 window.addEventListener("contextmenu", (e) => e.preventDefault());
 
-if (isPill || isTrayPopup || isSplash) {
+if (isPill || isTrayPopup) {
   // Ensure transparent background for floating overlay windows
   document.documentElement.style.background = "transparent";
   document.body.style.background = "transparent";
+  document.body.style.overflow = "hidden";
+}
+
+if (isSplash) {
+  // Solid obsidian background for splash screen (matching Discord-style frameless popup)
+  document.documentElement.style.background = "#0f0f13";
+  document.body.style.background = "#0f0f13";
   document.body.style.overflow = "hidden";
 }
 
