@@ -33,9 +33,13 @@ const isSplash = windowLabel === "splash";
 window.addEventListener("contextmenu", (e) => e.preventDefault());
 
 if (isPill || isTrayPopup) {
-  // Ensure transparent background for floating overlay windows
+  // Stamp a data attribute on <html> BEFORE any CSS loads.
+  // App.css uses this to skip the dark background on overlay windows.
+  document.documentElement.setAttribute("data-overlay", "true");
   document.documentElement.style.background = "transparent";
   document.body.style.background = "transparent";
+  document.body.style.margin = "0";
+  document.body.style.padding = "0";
   document.body.style.overflow = "hidden";
 }
 

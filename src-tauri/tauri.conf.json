@@ -55,8 +55,8 @@
                                 {
                                     "label":  "tray_popup",
                                     "title":  "Spitit Menu",
-                                    "width":  240,
-                                    "height":  220,
+                                    "width":  244,
+                                    "height":  236,
                                     "resizable":  false,
                                     "transparent":  true,
                                     "decorations":  false,

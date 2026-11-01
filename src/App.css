@@ -27,6 +27,14 @@
   user-select: none;
 }
 
+/* Overlay windows (pill, tray popup) must stay fully transparent */
+html[data-overlay="true"],
+html[data-overlay="true"] body,
+html[data-overlay="true"] #root {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
 body, html, #root {
   width: 100%;
   height: 100%;

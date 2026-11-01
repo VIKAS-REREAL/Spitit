@@ -1,144 +1,234 @@
-/* Spitit v3: Custom Taskbar System Tray Popup Menu */
+/* ─────────────────────────────────────────────────────────────────
+   Spitit v3 · Tray Popup
+   Premium, intentional, no emoji, no box.
+   Inspired by Linear / Vercel / emilkowal.ski layering principles.
+   ───────────────────────────────────────────────────────────────── */
 
-.tray-popup-container {
+.tp-root {
   width: 100vw;
   height: 100vh;
-  box-sizing: border-box;
   display: flex;
   align-items: flex-end;
   justify-content: flex-end;
+  padding: 8px;
+  box-sizing: border-box;
   background: transparent;
-  padding: 6px;
   overflow: hidden;
   user-select: none;
-  font-family: "Figtree", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: "Segoe UI Variable Display", "Segoe UI Variable", -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
 }
 
-.tray-popup-card {
+/* ── Card ─────────────────────────────────────────────────────── */
+.tp-card {
   width: 100%;
-  height: 100%;
-  box-sizing: border-box;
-  background: rgba(12, 12, 14, 0.94);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 14px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.04);
-  padding: 10px;
+  background: rgba(13, 13, 16, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 13px;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 8px 32px rgba(0, 0, 0, 0.72),
+    0 2px 8px rgba(0, 0, 0, 0.48);
+  padding: 6px;
   display: flex;
   flex-direction: column;
-  animation: trayPopupFadeIn 0.14s cubic-bezier(0.16, 1, 0.3, 1);
+  gap: 1px;
+
+  /* entry animation — starts invisible, CSS class triggers it */
+  opacity: 0;
+  transform: translateY(5px) scale(0.98);
+  transform-origin: bottom right;
+  transition:
+    opacity 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-@keyframes trayPopupFadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(6px) scale(0.97);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
+.tp-card--visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
 }
 
-.tray-popup-header {
+/* ── Header ───────────────────────────────────────────────────── */
+.tp-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 6px 8px 6px;
+  padding: 6px 8px 5px 8px;
 }
 
-.tray-popup-title-group {
+.tp-brand {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
 }
 
-.tray-popup-logo-pill {
-  width: 10px;
-  height: 10px;
+.tp-brand-dot {
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
-  background: #ffe566;
-  box-shadow: 0 0 10px rgba(255, 229, 102, 0.6);
+  background: #FFD505;
+  box-shadow: 0 0 10px rgba(255, 213, 5, 0.55);
+  flex-shrink: 0;
 }
 
-.tray-popup-title {
-  font-size: 13px;
+.tp-brand-name {
+  font-size: 12.5px;
   font-weight: 700;
-  color: #ffffeb;
+  color: #f4f4f5;
+  letter-spacing: -0.01em;
+}
+
+.tp-status-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #34c759;
+  background: rgba(52, 199, 89, 0.1);
+  border: 1px solid rgba(52, 199, 89, 0.22);
+  border-radius: 999px;
+  padding: 2px 7px 2px 6px;
   letter-spacing: 0.01em;
 }
 
-.tray-popup-status {
-  font-size: 10px;
-  font-weight: 600;
-  color: #4ade80;
-  background: rgba(34, 197, 94, 0.15);
-  border: 1px solid rgba(34, 197, 94, 0.3);
-  padding: 2px 7px;
-  border-radius: 10px;
+.tp-status-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #34c759;
+  box-shadow: 0 0 5px #34c759;
+  flex-shrink: 0;
+  animation: tp-pulse 2s ease-in-out infinite;
 }
 
-.tray-popup-divider {
-  height: 1px;
-  background: rgba(255, 255, 255, 0.08);
-  margin: 4px 0;
+@keyframes tp-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
 }
 
-.tray-popup-section-label {
-  font-size: 10px;
+/* ── Section Label ────────────────────────────────────────────── */
+.tp-section-label {
+  font-size: 9.5px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: rgba(255, 255, 235, 0.4);
-  padding: 4px 8px 2px 8px;
+  letter-spacing: 0.07em;
+  color: rgba(255, 255, 255, 0.28);
+  padding: 4px 10px 2px 10px;
 }
 
-.tray-popup-item {
+/* ── Separator ────────────────────────────────────────────────── */
+.tp-sep {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.06);
+  margin: 3px 4px;
+}
+
+/* ── Menu Item ────────────────────────────────────────────────── */
+.tp-item {
   width: 100%;
   background: transparent;
   border: none;
   outline: none;
   border-radius: 8px;
-  padding: 7px 8px;
+  padding: 7px 9px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  color: #ffffeb;
-  font-size: 12.5px;
-  font-weight: 500;
   cursor: pointer;
-  transition: all 0.12s ease;
+  transition:
+    background 0.1s ease,
+    color 0.1s ease;
   box-sizing: border-box;
+  position: relative;
 }
 
-.tray-popup-item:hover {
-  background: rgba(255, 255, 255, 0.08);
+.tp-item:hover {
+  background: rgba(255, 255, 255, 0.07);
 }
 
-.tray-popup-item:active {
-  background: rgba(255, 255, 255, 0.14);
+.tp-item:active {
+  background: rgba(255, 255, 255, 0.11);
   transform: scale(0.99);
+  transition-duration: 0.06s;
 }
 
-.tray-popup-item-left {
+/* Active / selected language */
+.tp-item--active {
+  background: rgba(255, 213, 5, 0.07);
+}
+
+.tp-item--active:hover {
+  background: rgba(255, 213, 5, 0.12);
+}
+
+/* Danger (quit) */
+.tp-item--danger {
+  color: #a1a1aa;
+}
+
+.tp-item--danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #f87171;
+}
+
+.tp-item--danger:hover .tp-item-ico {
+  color: #f87171;
+}
+
+/* ── Item internals ───────────────────────────────────────────── */
+.tp-item-left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
+  min-width: 0;
 }
 
-.tray-popup-item-icon {
-  font-size: 13px;
-  opacity: 0.85;
+.tp-item-ico {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.5);
+  transition: color 0.1s ease;
 }
 
-.tray-popup-check {
-  color: #ffe566;
-  font-weight: 700;
-  font-size: 13px;
+.tp-item:hover .tp-item-ico {
+  color: rgba(255, 255, 255, 0.75);
 }
 
-.tray-popup-item.danger:hover {
-  background: rgba(239, 68, 68, 0.12);
-  color: #f87171;
+.tp-item--active .tp-item-ico {
+  color: #FFD505;
+}
+
+.tp-item-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #e4e4e7;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.tp-item--danger .tp-item-label {
+  color: inherit;
+}
+
+.tp-item-sub {
+  font-size: 10px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.28);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+/* ── Checkmark ────────────────────────────────────────────────── */
+.tp-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #FFD505;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
 }
