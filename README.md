@@ -102,7 +102,7 @@ Spitit installs a Windows Low-Level Keyboard Hook (`WH_KEYBOARD_LL`) to provide 
 Official release binaries are published **exclusively** on GitHub Releases:
 
 - **Official Repository Releases:** [https://github.com/VIKAS-REREAL/Spitit/releases](https://github.com/VIKAS-REREAL/Spitit/releases)
-- **Official Website:** [https://spitit.in](https://spitit.in)
+- **Official Website:** [https://vikas-rereal.github.io/Spitit/](https://vikas-rereal.github.io/Spitit)
 
 > [!WARNING]
 > Do not download Spitit from third-party software mirrors, aggregator sites, or unauthorized distributions. Official builds always publish corresponding `SHA256SUMS.txt` cryptographic checksums.

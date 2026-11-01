@@ -46,7 +46,7 @@ extern "system" {
 const CRYPTPROTECT_UI_FORBIDDEN: u32 = 0x01;
 
 fn dpapi_encrypt(plaintext: &[u8]) -> Result<Vec<u8>, String> {
-    let mut in_blob = DATA_BLOB {
+    let in_blob = DATA_BLOB {
         cb_data: plaintext.len() as u32,
         pb_data: plaintext.as_ptr() as *mut u8,
     };
@@ -56,7 +56,7 @@ fn dpapi_encrypt(plaintext: &[u8]) -> Result<Vec<u8>, String> {
     };
     let ret = unsafe {
         CryptProtectData(
-            &mut in_blob,
+            &in_blob,
             std::ptr::null(),
             std::ptr::null(),
             std::ptr::null_mut(),
@@ -77,7 +77,7 @@ fn dpapi_encrypt(plaintext: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 fn dpapi_decrypt(ciphertext: &[u8]) -> Result<Vec<u8>, String> {
-    let mut in_blob = DATA_BLOB {
+    let in_blob = DATA_BLOB {
         cb_data: ciphertext.len() as u32,
         pb_data: ciphertext.as_ptr() as *mut u8,
     };
@@ -87,7 +87,7 @@ fn dpapi_decrypt(ciphertext: &[u8]) -> Result<Vec<u8>, String> {
     };
     let ret = unsafe {
         CryptUnprotectData(
-            &mut in_blob,
+            &in_blob,
             std::ptr::null_mut(),
             std::ptr::null(),
             std::ptr::null_mut(),

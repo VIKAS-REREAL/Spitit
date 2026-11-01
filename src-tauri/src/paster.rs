@@ -48,7 +48,7 @@ pub fn paste_text(text: &str, target_hwnd_val: isize, auto_paste: bool) -> Resul
         let current_fg = unsafe { GetForegroundWindow() };
         if current_fg != target_hwnd {
             unsafe {
-                let _ = show_window_activate(target_hwnd);
+                show_window_activate(target_hwnd);
                 let _ = BringWindowToTop(target_hwnd);
                 let _ = SetForegroundWindow(target_hwnd);
             }
@@ -175,14 +175,14 @@ fn is_current_process_elevated() -> bool {
 
 fn send_ctrl_v() -> Result<(), String> {
     unsafe {
-        let mut inputs = [
+        let inputs = [
             create_key_input(VK_CONTROL.0, 0),
             create_key_input(VK_V.0, 0),
             create_key_input(VK_V.0, KEYEVENTF_KEYUP.0),
             create_key_input(VK_CONTROL.0, KEYEVENTF_KEYUP.0),
         ];
 
-        let sent = SendInput(&mut inputs, std::mem::size_of::<INPUT>() as i32);
+        let sent = SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
 
         if sent == inputs.len() as u32 {
             Ok(())

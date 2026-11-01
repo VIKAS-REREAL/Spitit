@@ -111,6 +111,7 @@ impl DbManager {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn save_record(
         &self,
         text: &str,
@@ -217,10 +218,8 @@ impl DbManager {
         };
 
         let mut records = Vec::new();
-        for r in rows {
-            if let Ok(rec) = r {
-                records.push(rec);
-            }
+        for rec in rows.flatten() {
+            records.push(rec);
         }
         Ok(records)
     }
@@ -284,7 +283,7 @@ impl DbManager {
             let weekday_idx = (days_since_epoch + 4) % 7;
             let day_name = day_names[weekday_idx].to_string();
             // Format simple date e.g. "D-0"
-            let date_label = format!("{day_name}");
+            let date_label = day_name.clone();
             daily_map.push((d_start, day_name, date_label, 0, i == 0));
         }
 
@@ -299,11 +298,10 @@ impl DbManager {
             })
             .map_err(|e| e.to_string())?;
 
-        for r in rows {
-            if let Ok((ts, words, dur, app)) = r {
-                total_dictations += 1;
-                total_words += words as usize;
-                total_duration_secs += dur;
+        for (ts, words, dur, app) in rows.flatten() {
+            total_dictations += 1;
+            total_words += words as usize;
+            total_duration_secs += dur;
 
                 if ts >= today_start_ms {
                     words_today += words as usize;
@@ -347,7 +345,7 @@ impl DbManager {
         let time_saved_mins = (typing_time_mins - speaking_time_mins).max(0.0).round() as u32;
 
         let mut top_apps_vec: Vec<(String, usize)> = app_counts.into_iter().collect();
-        top_apps_vec.sort_by(|a, b| b.1.cmp(&a.1));
+        top_apps_vec.sort_by_key(|a| std::cmp::Reverse(a.1));
         top_apps_vec.truncate(5);
 
         let daily_activity = daily_map

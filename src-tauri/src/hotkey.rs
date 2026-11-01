@@ -59,6 +59,7 @@ pub enum HotkeyEvent {
     StartConfirmed,
     Stop,
     Cancel,
+    #[allow(dead_code)]
     TapIgnored,
 }
 
@@ -280,6 +281,7 @@ impl HotkeyManager {
         }
     }
 
+    #[allow(dead_code)]
     pub fn update_combos(&self, hold_str: &str, _toggle_str: &str, min_ms: u32) {
         let preset_id = match hold_str.to_lowercase().as_str() {
             s if s.contains("space") && s.contains("ctrl") && s.contains("alt") => 4,
@@ -432,7 +434,7 @@ fn start_watchdog_thread() {
             }
 
             // Verify hook installation every ~2s (20 iterations * 100ms)
-            if loop_count % 20 == 0 && !IS_HOOK_INSTALLED.load(Ordering::SeqCst) {
+            if loop_count.is_multiple_of(20) && !IS_HOOK_INSTALLED.load(Ordering::SeqCst) {
                 eprintln!("[Spitit Hook Watchdog] Re-installing low-level hook...");
                 start_hook_worker();
             }
@@ -578,14 +580,11 @@ fn handle_raw_key_event(state: &mut HookSharedState, vk: u32, is_down: bool, is_
                         state.candidate_start = None;
                         let _ = state.event_tx.send(HotkeyEvent::StartConfirmed);
                     }
-                } else if state.engine_state == EngineState::Recording {
-                    if !state.is_toggle_session {
-                        // Normal hold-mode release: stop and process
-                        state.engine_state = EngineState::Processing;
-                        state.candidate_start = None;
-                        let _ = state.event_tx.send(HotkeyEvent::Stop);
-                    }
-                    // If toggle session, keep recording until user presses combo again
+                } else if state.engine_state == EngineState::Recording && !state.is_toggle_session {
+                    // Normal hold-mode release: stop and process
+                    state.engine_state = EngineState::Processing;
+                    state.candidate_start = None;
+                    let _ = state.event_tx.send(HotkeyEvent::Stop);
                 }
             }
         }

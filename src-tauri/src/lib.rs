@@ -146,6 +146,11 @@ pub fn configure_pill_window(
     }
 }
 
+/// Positions the dictation pill on the monitor.
+///
+/// # Safety
+///
+/// Caller must ensure that `hwnd` is a valid, active Win32 window handle.
 pub unsafe fn position_pill_on_monitor(hwnd: HWND, saved_x: Option<i32>, saved_y: Option<i32>) {
     let dpi = GetDpiForWindow(hwnd);
     let scale = if dpi > 0 { dpi as f32 / 96.0 } else { 1.0 };
@@ -523,9 +528,9 @@ fn is_autostart_enabled() -> bool {
 
 fn get_current_exe_clean() -> Result<std::path::PathBuf, String> {
     let mut exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let exe_str = exe.to_string_lossy().to_string();
-    if exe_str.starts_with(r"\\?\") {
-        exe = std::path::PathBuf::from(&exe_str[4..]);
+    let exe_str = exe.to_string_lossy();
+    if let Some(stripped) = exe_str.strip_prefix(r"\\?\") {
+        exe = std::path::PathBuf::from(stripped);
     }
     Ok(exe)
 }

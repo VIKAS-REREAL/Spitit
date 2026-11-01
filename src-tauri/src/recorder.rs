@@ -360,12 +360,11 @@ fn run_audio_worker<FLevel, FCountdown, FAutoStop>(
                     Err(err) => {
                         // Fallback: search supported_input_configs
                         let mut fallback_config = None;
-                        if let Ok(configs) = device.supported_input_configs() {
-                            for supp in configs {
+                        if let Ok(mut configs) = device.supported_input_configs() {
+                            if let Some(supp) = configs.next() {
                                 let rate = cpal::SampleRate(48000)
                                     .clamp(supp.min_sample_rate(), supp.max_sample_rate());
                                 fallback_config = Some(supp.with_sample_rate(rate));
-                                break;
                             }
                         }
                         match fallback_config {
