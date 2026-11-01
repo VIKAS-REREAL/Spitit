@@ -87,7 +87,7 @@ jobs:
           ls -la build-artifacts/
 
       - name: Upload Microsoft Store MSIX Package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Spitit_3.0.2_x64_MSIX
           path: |
@@ -97,7 +97,7 @@ jobs:
           retention-days: 30
 
       - name: Upload All Windows Build Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spitit-windows-build-${{ github.sha }}
           path: build-artifacts/*
