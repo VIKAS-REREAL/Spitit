@@ -389,7 +389,7 @@ export default function App() {
         <div className="win-titlebar-left">
           <img src="/icon.svg" alt="Spitit" className="win-titlebar-icon" />
           <span className="win-titlebar-name">Spitit</span>
-          <span className="win-titlebar-badge">v3.0.1</span>
+          <span className="win-titlebar-badge">v3.0.2</span>
         </div>
 
         <div className="win-titlebar-spacer" />

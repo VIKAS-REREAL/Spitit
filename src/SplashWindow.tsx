@@ -122,7 +122,7 @@ class SplashErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySta
                   Spitit
                 </span>
                 <span className="splash-version-badge" data-tauri-drag-region>
-                  v3.0.1
+                  v3.0.2
                 </span>
               </div>
               <div className="splash-tagline" data-tauri-drag-region>
@@ -289,7 +289,7 @@ function SplashContent() {
               Spitit
             </span>
             <span className="splash-version-badge" data-tauri-drag-region>
-              v3.0.1
+              v3.0.2
             </span>
           </div>
 

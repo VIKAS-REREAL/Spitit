@@ -69,7 +69,7 @@ jobs:
         shell: pwsh
         run: |
           ./msix/build-msix.ps1 `
-            -Version "3.0.1" `
+            -Version "3.0.2" `
             -PackageName "VikasNath.Spitit" `
             -Publisher "CN=0AE03DC8-0A8C-4F03-A557-E8A19893C1E6" `
             -PublisherDisplayName "VikasNath" `
@@ -81,15 +81,15 @@ jobs:
         run: |
           mkdir -p build-artifacts
           # Copy NSIS installer
-          cp src-tauri/target/release/bundle/nsis/*.exe build-artifacts/Spitit_3.0.1_x64-setup.exe 2>/dev/null || true
+          cp src-tauri/target/release/bundle/nsis/*.exe build-artifacts/Spitit_3.0.2_x64-setup.exe 2>/dev/null || true
           # Copy Standalone portable executable
-          cp src-tauri/target/release/spitit-v3.exe build-artifacts/Spitit_3.0.1_portable.exe 2>/dev/null || cp src-tauri/target/release/Spitit.exe build-artifacts/Spitit_3.0.1_portable.exe 2>/dev/null || true
+          cp src-tauri/target/release/spitit-v3.exe build-artifacts/Spitit_3.0.2_portable.exe 2>/dev/null || cp src-tauri/target/release/Spitit.exe build-artifacts/Spitit_3.0.2_portable.exe 2>/dev/null || true
           ls -la build-artifacts/
 
       - name: Upload Microsoft Store MSIX Package
         uses: actions/upload-artifact@v4
         with:
-          name: Spitit_3.0.1_x64_MSIX
+          name: Spitit_3.0.2_x64_MSIX
           path: |
             build-artifacts/*.msix
             build-artifacts/*.cer
