@@ -323,7 +323,6 @@ impl DbManager {
                     }
                 }
             }
-        }
 
         let is_empty = total_dictations == 0;
 
