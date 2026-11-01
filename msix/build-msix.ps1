@@ -35,6 +35,7 @@ if ($sdkCommand) {
         if (Test-Path $path) {
             $found = Get-ChildItem -Path $path -Filter "makeappx.exe" -Recurse -ErrorAction SilentlyContinue |
                 Where-Object { $_.FullName -like "*x64*" } |
+                Sort-Object FullName -Descending |
                 Select-Object -First 1
             if ($found) {
                 $makeAppx = $found.FullName
@@ -71,6 +72,7 @@ if (-not $signTool -or -not (Test-Path $signTool)) {
         if (Test-Path $path) {
             $foundSign = Get-ChildItem -Path $path -Filter "signtool.exe" -Recurse -ErrorAction SilentlyContinue |
                 Where-Object { $_.FullName -like "*x64*" } |
+                Sort-Object FullName -Descending |
                 Select-Object -First 1
             if ($foundSign) {
                 $signTool = $foundSign.FullName

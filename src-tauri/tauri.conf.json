@@ -20,9 +20,23 @@
         "minHeight": 520,
         "center": true,
         "maximized": false,
-        "visible": true,
+        "visible": false,
         "decorations": false,
         "transparent": false
+      },
+      {
+        "label": "splash",
+        "title": "Spitit",
+        "width": 380,
+        "height": 470,
+        "center": true,
+        "resizable": false,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": false,
+        "visible": false,
+        "shadow": false
       },
       {
         "label": "pill",

@@ -62,9 +62,13 @@ struct AppState {
     db: Arc<DbManager>,
     tray_lang_items: Mutex<Option<(CheckMenuItem<Wry>, CheckMenuItem<Wry>)>>,
     captured_app: Mutex<Option<AppInfo>>,
+    is_autostart: bool,
 }
 
 pub fn bring_main_window_to_front(app: &tauri::AppHandle) {
+    if let Some(splash) = app.get_webview_window("splash") {
+        let _ = splash.hide();
+    }
     if let Some(win) = app.get_webview_window("main") {
         if let Ok(true) = win.is_maximized() {
             let _ = win.unmaximize();
@@ -237,6 +241,42 @@ pub fn configure_tray_popup_window(window: &tauri::WebviewWindow) {
             );
         }
     }
+}
+
+pub fn configure_splash_window(splash_win: &tauri::WebviewWindow) {
+    if let Ok(raw_hwnd) = splash_win.hwnd() {
+        let hwnd = HWND(raw_hwnd.0 as _);
+        unsafe {
+            let style = GetWindowLongW(hwnd, GWL_STYLE);
+            SetWindowLongW(
+                hwnd,
+                GWL_STYLE,
+                style & !(WS_MAXIMIZEBOX.0 as i32) & !(WS_THICKFRAME.0 as i32),
+            );
+        }
+    }
+}
+
+#[tauri::command]
+fn is_autostart_boot(state: tauri::State<AppState>) -> bool {
+    state.is_autostart
+}
+
+#[tauri::command]
+fn splash_open_settings(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(splash) = app.get_webview_window("splash") {
+        let _ = splash.hide();
+    }
+    bring_main_window_to_front(&app);
+    Ok(())
+}
+
+#[tauri::command]
+fn splash_continue_background(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(splash) = app.get_webview_window("splash") {
+        let _ = splash.hide();
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -747,6 +787,7 @@ pub fn run() {
         db: Arc::clone(&db),
         tray_lang_items: Mutex::new(None),
         captured_app: Mutex::new(None),
+        is_autostart: is_autostart_launch,
     };
 
     tauri::Builder::default()
@@ -774,15 +815,17 @@ pub fn run() {
                 let _ = set_autostart_enabled(true);
             }
 
-            // Window presentation (Policy 10.3.3):
-            // When launched from Start Menu or desktop, ALWAYS bring the main window to front.
-            // Only hide silently to tray when launched with the explicit Windows boot parameter (--autostart).
-            if is_autostart_launch {
-                if let Some(main_win) = app.get_webview_window("main") {
-                    let _ = main_win.hide();
-                }
-            } else {
-                bring_main_window_to_front(&handle);
+            // Keep main application window hidden on launch
+            if let Some(main_win) = app.get_webview_window("main") {
+                let _ = main_win.hide();
+            }
+
+            // Present Splash Screen centered on application launch
+            if let Some(splash_win) = app.get_webview_window("splash") {
+                configure_splash_window(&splash_win);
+                let _ = splash_win.center();
+                let _ = splash_win.show();
+                let _ = splash_win.set_focus();
             }
 
             // Setup System Tray
@@ -1090,6 +1133,9 @@ pub fn run() {
             save_pill_position,
             start_pill_drag,
             open_settings_window,
+            is_autostart_boot,
+            splash_open_settings,
+            splash_continue_background,
             minimize_window,
             toggle_maximize_window,
             close_window,
