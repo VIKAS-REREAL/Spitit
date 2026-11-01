@@ -1,4 +1,4 @@
-﻿{
+{
     "$schema":  "https://schema.tauri.app/config/2",
     "productName":  "Spitit",
     "version":  "3.0.1",
