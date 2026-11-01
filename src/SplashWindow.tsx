@@ -1,21 +1,166 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Component, ErrorInfo, ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import iconSvg from "./assets/icon.svg";
 import "./SplashWindow.css";
 
 interface UserSettings {
-  hotkey_preset?: string;
+  hotkey_preset?: number | string;
+  hold_hotkey?: string;
+  toggle_hotkey?: string;
+  hotkey_combo?: string;
   mode?: string;
   language?: string;
 }
 
-export default function SplashWindow() {
+/**
+ * Safely resolves the active hotkey keycaps without ever throwing.
+ * Handles numeric preset IDs (0..5), legacy strings, or custom combos.
+ */
+function getHotkeyKeycaps(settings: UserSettings | null): string[] {
+  if (!settings) {
+    return ["Alt", "Shift"];
+  }
+
+  // 1. Numeric Hotkey Preset IDs (matching App.tsx HOTKEY_PRESETS):
+  // 0: Alt + Space
+  // 1: Alt + Left Shift (Spitit Classic default)
+  // 2: Ctrl + Shift
+  // 3: Right Alt
+  // 4: Ctrl + Alt + Space
+  // 5: Ctrl + Space
+  const presetNum =
+    typeof settings.hotkey_preset === "number"
+      ? settings.hotkey_preset
+      : typeof settings.hotkey_preset === "string" && !isNaN(Number(settings.hotkey_preset))
+        ? Number(settings.hotkey_preset)
+        : null;
+
+  if (presetNum !== null) {
+    switch (presetNum) {
+      case 0:
+        return ["Alt", "Space"];
+      case 1:
+        return ["Alt", "Shift"];
+      case 2:
+        return ["Ctrl", "Shift"];
+      case 3:
+        return ["Right Alt"];
+      case 4:
+        return ["Ctrl", "Alt", "Space"];
+      case 5:
+        return ["Ctrl", "Space"];
+      default:
+        return ["Alt", "Shift"];
+    }
+  }
+
+  // 2. String representation fallback (hold_hotkey or hotkey_combo)
+  const raw = String(settings.hold_hotkey || settings.hotkey_combo || "").trim();
+  if (raw) {
+    const lower = raw.toLowerCase();
+    if (lower.includes("space") && lower.includes("ctrl") && lower.includes("alt")) {
+      return ["Ctrl", "Alt", "Space"];
+    }
+    if (lower.includes("space") && lower.includes("alt")) {
+      return ["Alt", "Space"];
+    }
+    if (lower.includes("space") && lower.includes("ctrl")) {
+      return ["Ctrl", "Space"];
+    }
+    if (lower.includes("ralt") || lower.includes("right alt")) {
+      return ["Right Alt"];
+    }
+    if (lower.includes("ctrl") && lower.includes("shift")) {
+      return ["Ctrl", "Shift"];
+    }
+    if (lower.includes("alt") && lower.includes("shift")) {
+      return ["Alt", "Shift"];
+    }
+    const parts = raw.split(/[+_]/).map((k) => k.trim()).filter(Boolean);
+    if (parts.length > 0) return parts;
+  }
+
+  return ["Alt", "Shift"];
+}
+
+interface ErrorBoundaryProps {
+  children: ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+}
+
+class SplashErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(): ErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("SplashWindow uncaught error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="splash-container">
+          <div className="splash-card">
+            <div className="splash-drag-area" data-tauri-drag-region>
+              <img
+                src="/icon.svg"
+                alt="Spitit"
+                className="splash-logo-svg"
+                data-tauri-drag-region
+              />
+              <div className="splash-title-row" data-tauri-drag-region>
+                <span className="splash-app-name" data-tauri-drag-region>
+                  Spitit
+                </span>
+                <span className="splash-version-badge" data-tauri-drag-region>
+                  v3.0.1
+                </span>
+              </div>
+              <div className="splash-tagline" data-tauri-drag-region>
+                Instant AI Voice Dictation
+              </div>
+            </div>
+
+            <div className="splash-actions" style={{ marginTop: "auto" }}>
+              <button
+                className="splash-btn splash-btn-primary"
+                onClick={() => invoke("splash_continue_background").catch(() => {})}
+              >
+                <span>Continue in Background</span>
+              </button>
+              <button
+                className="splash-btn splash-btn-secondary"
+                onClick={() => invoke("splash_open_settings").catch(() => {})}
+              >
+                <span>Open Settings</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+function SplashContent() {
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [isAutostart, setIsAutostart] = useState(false);
   const [countdown, setCountdown] = useState(4);
   const [progress, setProgress] = useState(100);
   const [isClosing, setIsClosing] = useState(false);
   const [paused, setPaused] = useState(false);
+  const [imgSrc, setImgSrc] = useState<string>(iconSvg || "/icon.svg");
 
   const timerRef = useRef<number | null>(null);
   const startTimeRef = useRef<number | null>(null);
@@ -35,7 +180,7 @@ export default function SplashWindow() {
       })
       .catch(() => {});
 
-    // 3. Keyboard shortcuts: Enter / Space = Continue, S / O = Settings, Esc = Continue
+    // 3. Global keyboard shortcuts: Enter / Space / Esc = Continue, S / O = Settings
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape" || e.key === "Enter") {
         handleContinueBackground();
@@ -85,76 +230,25 @@ export default function SplashWindow() {
     if (isClosing) return;
     setIsClosing(true);
     setPaused(true);
-    setTimeout(async () => {
-      try {
-        await invoke("splash_open_settings");
-      } catch {
-        // Fallback
-        await invoke("open_settings_window").catch(() => {});
-      }
-    }, 140);
+    try {
+      await invoke("splash_open_settings");
+    } catch {
+      await invoke("open_settings_window").catch(() => {});
+    }
   };
 
   const handleContinueBackground = async () => {
     if (isClosing) return;
     setIsClosing(true);
     setPaused(true);
-    setTimeout(async () => {
-      try {
-        await invoke("splash_continue_background");
-      } catch {
-        // Fallback close window
-        await invoke("close_window").catch(() => {});
-      }
-    }, 140);
-  };
-
-  // Helper to parse hotkey labels into keyboard keycaps
-  const renderKeycaps = () => {
-    const raw = settings?.hotkey_preset || "ctrl_space";
-    let keys: string[] = ["Ctrl", "Space"];
-
-    switch (raw.toLowerCase()) {
-      case "ctrl_space":
-        keys = ["Ctrl", "Space"];
-        break;
-      case "right_alt":
-      case "alt_right":
-        keys = ["Right Alt"];
-        break;
-      case "left_alt":
-      case "alt_left":
-        keys = ["Left Alt"];
-        break;
-      case "caps_lock":
-      case "capslock":
-        keys = ["Caps Lock"];
-        break;
-      case "f8":
-        keys = ["F8"];
-        break;
-      case "f9":
-        keys = ["F9"];
-        break;
-      case "double_ctrl":
-        keys = ["Ctrl", "Ctrl"];
-        break;
-      default:
-        keys = raw.split("+").map((k) => k.trim());
-        break;
+    try {
+      await invoke("splash_continue_background");
+    } catch {
+      await invoke("close_window").catch(() => {});
     }
-
-    return (
-      <div className="splash-hotkey-pill">
-        {keys.map((k, idx) => (
-          <span key={idx} style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
-            <kbd className="splash-kbd">{k}</kbd>
-            {idx < keys.length - 1 && <span className="splash-kbd-plus">+</span>}
-          </span>
-        ))}
-      </div>
-    );
   };
+
+  const keycaps = getHotkeyKeycaps(settings);
 
   return (
     <div className="splash-container">
@@ -169,7 +263,8 @@ export default function SplashWindow() {
           <div className="splash-logo-wrapper" data-tauri-drag-region>
             <div className="splash-logo-glow" />
             <img
-              src={iconSvg}
+              src={imgSrc}
+              onError={() => setImgSrc("/icon.svg")}
               alt="Spitit"
               className="splash-logo-svg"
               draggable={false}
@@ -209,7 +304,14 @@ export default function SplashWindow() {
             <div className="splash-status-dot-ping" />
             <span className="splash-status-text">Ready in background</span>
           </div>
-          {renderKeycaps()}
+          <div className="splash-hotkey-pill">
+            {keycaps.map((k, idx) => (
+              <span key={idx} style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+                <kbd className="splash-kbd">{k}</kbd>
+                {idx < keycaps.length - 1 && <span className="splash-kbd-plus">+</span>}
+              </span>
+            ))}
+          </div>
         </div>
 
         {/* Autostart Countdown Banner (When launched during Windows startup) */}
@@ -239,11 +341,12 @@ export default function SplashWindow() {
             title="Keep Spitit running in background (Hotkeys active)"
           >
             <span className="splash-btn-icon">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M5 12h14M12 5l7 7-7 7" />
               </svg>
             </span>
             <span>Continue in Background</span>
+            <kbd className="splash-btn-kbd">Enter</kbd>
           </button>
 
           {/* Secondary Action: Open Settings */}
@@ -253,12 +356,13 @@ export default function SplashWindow() {
             title="Open Spitit Settings & Dashboard"
           >
             <span className="splash-btn-icon">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
                 <circle cx="12" cy="12" r="3" />
               </svg>
             </span>
             <span>Open Settings</span>
+            <kbd className="splash-btn-kbd">S</kbd>
           </button>
         </div>
 
@@ -271,3 +375,10 @@ export default function SplashWindow() {
   );
 }
 
+export default function SplashWindow() {
+  return (
+    <SplashErrorBoundary>
+      <SplashContent />
+    </SplashErrorBoundary>
+  );
+}
